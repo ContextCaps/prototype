@@ -176,6 +176,10 @@ export function evaluateRequest(request: ContextRequest, ctx: EvaluationContext)
     return deny("AUDIENCE_NOT_ALLOWED", "A tool audience is required for tool-bound disclosure.");
   }
 
+  if (ctx.lineage.slice(1).some((ancestor) => !grants(ancestor.capability, request, mode))) {
+    return deny("OUT_OF_SCOPE", "Request exceeds the authority of an ancestor capability.");
+  }
+
   const parameters = validateParameters(spec, request.parameters ?? {}, ctx.mandate!);
   if ("denial" in parameters) return parameters.denial;
 
@@ -230,4 +234,17 @@ function validateParameters(
 
 function sameText(a: unknown, b: unknown): boolean {
   return typeof a === "string" && typeof b === "string" && a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * Effective authority is the intersection over the whole lineage: a child can
+ * never exercise something an ancestor does not grant, even if its own record
+ * claims otherwise.
+ */
+function grants(capability: ContextCapability, request: ContextRequest, mode: DisclosureMode): boolean {
+  const granted = capability.permissions.find((p) => p.resource === request.resource);
+  if (!granted?.allowedModes.includes(mode)) return false;
+  if (granted.allowedOperations && !granted.allowedOperations.includes(request.operation)) return false;
+  if (granted.allowedAudience && !(request.audience && granted.allowedAudience.includes(request.audience))) return false;
+  return true;
 }
