@@ -295,7 +295,14 @@ DELEGATION_SCOPE_ESCALATION
 DELEGATION_DEPTH_EXCEEDED
 RAW_DISCLOSURE_FORBIDDEN
 TOOL_NOT_ALLOWED
+
+DERIVATION_QUOTA_EXCEEDED     (added 2026-10-12 by P2 — affects P3 rendering)
 ```
+
+`DERIVATION_QUOTA_EXCEEDED`: a capability asked too many *distinct* questions of a
+low-entropy derived resource (passport.validity: 5, calendar.availability: 10).
+Identical repeated questions are answered from cache and do not count. Suggested
+UI copy: "Blocked — too many different questions about the same private fact."
 
 ## 8. MVP Resources
 

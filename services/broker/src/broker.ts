@@ -1,5 +1,6 @@
 import {
   computePolicyHash,
+  deny,
   evaluateRequest,
   getCapabilityTemplate,
   PURPOSES,
@@ -35,6 +36,7 @@ import type { CapabilityStateProvider } from "./chain/stateProvider";
 import { HANDLE_TTL_MS, HandleStore } from "./handles";
 import { resolveContext } from "./lineage";
 import { silentLogger, type SafeLogger } from "./logger";
+import { DerivationQuota } from "./quota";
 import { ReceiptLedger } from "./receipts";
 import { randomIds, systemClock, type Clock, type IdGenerator } from "./runtime";
 import { SessionStore } from "./sessions";
@@ -90,6 +92,7 @@ export class ContextBroker {
   readonly #ids: IdGenerator;
   readonly #logger: SafeLogger;
   readonly #handles = new HandleStore();
+  readonly #quota = new DerivationQuota();
   readonly #ledger: ReceiptLedger;
   readonly #tools: ToolGateway;
 
@@ -248,6 +251,20 @@ export class ContextBroker {
   #disclose(verdict: PolicyVerdict, request: ContextRequest, now: Date): { verdict: PolicyVerdict; result?: unknown } {
     if (!verdict.allowed) return { verdict };
     try {
+      const limit = verdict.decision === "DERIVE" ? verdict.spec.maxUniqueQueries : undefined;
+      if (limit !== undefined) {
+        const key = DerivationQuota.queryKey(request.operation, verdict.parameters);
+        const admission = this.#quota.admit(request.capabilityId, verdict.spec.resource, key, limit);
+        if (admission.kind === "cached") return { verdict, result: admission.result };
+        if (admission.kind === "exhausted") {
+          return {
+            verdict: deny("DERIVATION_QUOTA_EXCEEDED", `Unique-query limit (${limit}) for ${verdict.spec.resource} reached for this capability.`),
+          };
+        }
+        const result = this.#produce(verdict, request, now);
+        this.#quota.record(request.capabilityId, verdict.spec.resource, key, result);
+        return { verdict, result };
+      }
       return { verdict, result: this.#produce(verdict, request, now) };
     } catch (error) {
       const reason =
@@ -495,6 +512,7 @@ export class ContextBroker {
   reset(): void {
     this.store.reset();
     this.sessions.reset();
+    this.#quota.reset();
     this.#handles.reset();
   }
 

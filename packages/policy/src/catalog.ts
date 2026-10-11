@@ -31,6 +31,11 @@ export interface ResourceSpec {
   requiresAudience?: boolean;
   /** Validates `ContextRequest.parameters` once the request is otherwise authorized. */
   parameters?: z.ZodType<Record<string, unknown>>;
+  /**
+   * DERIVE only: max distinct queries per capability (identical queries are
+   * served from cache). Bounds oracle-style probing of low-entropy facts.
+   */
+  maxUniqueQueries?: number;
   /** Parameters that must equal a mandate constraint (prevents off-task probing). */
   mandateBoundParams?: Array<{ param: string; constraint: "destination" }>;
 }
@@ -63,6 +68,7 @@ export const RESOURCE_CATALOG: Readonly<Record<string, ResourceSpec>> = {
       returnDate: isoDate,
     }),
     mandateBoundParams: [{ param: "destination", constraint: "destination" }],
+    maxUniqueQueries: 5,
   },
   [RESOURCES.CALENDAR_RAW]: rawSpec(RESOURCES.CALENDAR_RAW),
   [RESOURCES.CALENDAR_AVAILABILITY]: {
@@ -76,6 +82,7 @@ export const RESOURCE_CATALOG: Readonly<Record<string, ResourceSpec>> = {
       to: isoDate,
       minHours: z.number().positive().optional(),
     }),
+    maxUniqueQueries: 10,
   },
   [RESOURCES.TRAVEL_HOTEL_PREFERENCES]: {
     resource: RESOURCES.TRAVEL_HOTEL_PREFERENCES,

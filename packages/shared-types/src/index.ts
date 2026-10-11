@@ -165,6 +165,9 @@ export const REASON_CODES = [
   "DELEGATION_DEPTH_EXCEEDED",
   "RAW_DISCLOSURE_FORBIDDEN",
   "TOOL_NOT_ALLOWED",
+
+  // Added by Person 2 (2026-10-12): unique-query limit on low-entropy derived facts.
+  "DERIVATION_QUOTA_EXCEEDED",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];
