@@ -1,0 +1,9 @@
+{
+  "name": "@contextcaps/broker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "types": "./src/index.ts",
+  "dependencies": { "@contextcaps/shared-types": "0.1.0", "@contextcaps/policy": "0.1.0", "@contextcaps/vault": "0.1.0", "@contextcaps/agent": "0.1.0", "fastify": "^5.6.0", "@fastify/cors": "^11.1.0", "zod": "^4.3.0" }
+}

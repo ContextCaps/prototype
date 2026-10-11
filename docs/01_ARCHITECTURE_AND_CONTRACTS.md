@@ -375,6 +375,41 @@ Returns current state.
 
 Returns decisions/receipts for UI.
 
+### 9.1 Implementation notes (Person 2, additive — affects P1/P3)
+
+Typed payloads for every endpoint live in `packages/shared-types/src/broker-api.ts`
+(§6 types are unchanged). Additions:
+
+```text
+POST /tools/:toolId/invoke   tool-bound call; agent passes opaque handles, gateway injects secrets
+POST /agent/runs             { mandateId, scenario?: "golden" | "retry" } → run result + LLM-visible trace
+POST /demo/reset             only when DEMO_MODE=true
+GET  /health
+```
+
+HTTP conventions: `/context/request` always returns 200 with a `DisclosureDecision`
+(DENY is a decision, not an error). `/delegations` returns 201, or 403 with
+`{ allowed: false, reasonCode, reason }`. Malformed input → 400 `INVALID_REQUEST`.
+
+Resource / operation pairs (`ContextRequest.operation`):
+
+```text
+passport.raw, calendar.raw, salary.raw, payment.raw   read            (always DENY)
+passport.validity                                     valid_for_trip  params { destination, departureDate, returnDate }
+calendar.availability                                 available_window params { from, to, minHours? }  (Scenes 4/8 "calendar.available_window")
+travel.hotel_preferences                              select          params { fields? }
+profile.legal_name, payment.handle                    issue_handle    audience "demo-booking-connector"
+```
+
+Reason-code rule for raw resources (reconciles Scene 2 with Scene 5 / INV-05):
+raw resource whose family is in the capability (passport, calendar, payment) →
+`RAW_DISCLOSURE_FORBIDDEN`; family not in the capability at all (salary) → `OUT_OF_SCOPE`.
+Malformed or off-task parameters (e.g. passport validity for a destination other
+than the mandate's) → `DENY / OUT_OF_SCOPE`.
+
+Revocation of a parent revokes its whole subtree (the broker checks every ancestor's
+state on each request).
+
 ## 10. Monad Contract Responsibilities
 
 ### CapabilityRegistry

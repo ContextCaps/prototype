@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "packages/shared-types/src",
+    "packages/policy/src",
+    "services/vault/src",
+    "services/broker/src",
+    "services/agent/src",
+    "tests/broker"
+  ]
+}

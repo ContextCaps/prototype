@@ -1,0 +1,12 @@
+{
+  "name": "@contextcaps/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@contextcaps/shared-types": "0.1.0",
+    "@contextcaps/policy": "0.1.0"
+  }
+}

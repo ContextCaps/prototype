@@ -1,0 +1,402 @@
+import {
+  computePolicyHash,
+  evaluateRequest,
+  getCapabilityTemplate,
+  PURPOSES,
+  validateDelegation,
+  type Allowance,
+  type PolicyVerdict,
+} from "@contextcaps/policy";
+import type {
+  AuditResponse,
+  CapabilityId,
+  CapabilityStateResponse,
+  ContextCapability,
+  ContextRequest,
+  CreateDelegationRequest,
+  CreateDelegationResponse,
+  CreateMandateRequest,
+  CreateMandateResponse,
+  Delegation,
+  DisclosureDecision,
+  TaskMandate,
+  ToolBoundHandle,
+  ToolInvocationRequest,
+  ToolInvocationResult,
+} from "@contextcaps/shared-types";
+import { DerivationError, type ContextVault } from "@contextcaps/vault";
+import type { CapabilityStateProvider } from "./chain/stateProvider";
+import { HANDLE_TTL_MS, HandleStore } from "./handles";
+import { resolveContext } from "./lineage";
+import { silentLogger, type SafeLogger } from "./logger";
+import { ReceiptLedger } from "./receipts";
+import { randomIds, systemClock, type Clock, type IdGenerator } from "./runtime";
+import { BrokerStore } from "./store";
+import type { ToolConnector } from "./tools/connector";
+import { ToolGateway } from "./tools/toolGateway";
+
+export interface BrokerDeps {
+  vault: ContextVault;
+  provider: CapabilityStateProvider;
+  connectors: ToolConnector[];
+  /** Key for result commitments in receipts. */
+  receiptKey: string;
+  clock?: Clock;
+  ids?: IdGenerator;
+  logger?: SafeLogger;
+}
+
+/** Thrown for malformed API input that never reaches policy evaluation. */
+export class BrokerInputError extends Error {
+  readonly status: number;
+  constructor(message: string, status = 400) {
+    super(message);
+    this.name = "BrokerInputError";
+    this.status = status;
+  }
+}
+
+const ZERO_HASH = "0x" + "0".repeat(64);
+const DEFAULT_MANDATE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Context Broker — the single enforcement point between agents and private context.
+ *
+ *   agent → requestContext → resolve trust-layer state → pure policy → vault (derive/select)
+ *                                                               └→ handle (tool-bound)
+ *   every decision → DisclosureReceipt (hashes only) → anchored via provider
+ */
+export class ContextBroker {
+  readonly store = new BrokerStore();
+  readonly #vault: ContextVault;
+  readonly #provider: CapabilityStateProvider;
+  readonly #clock: Clock;
+  readonly #ids: IdGenerator;
+  readonly #logger: SafeLogger;
+  readonly #handles = new HandleStore();
+  readonly #ledger: ReceiptLedger;
+  readonly #tools: ToolGateway;
+
+  constructor(deps: BrokerDeps) {
+    this.#vault = deps.vault;
+    this.#provider = deps.provider;
+    this.#clock = deps.clock ?? systemClock;
+    this.#ids = deps.ids ?? randomIds;
+    this.#logger = deps.logger ?? silentLogger;
+    this.#ledger = new ReceiptLedger({
+      store: this.store,
+      provider: this.#provider,
+      ids: this.#ids,
+      logger: this.#logger,
+      receiptKey: deps.receiptKey,
+    });
+    this.#tools = new ToolGateway({
+      store: this.store,
+      provider: this.#provider,
+      vault: this.#vault,
+      handles: this.#handles,
+      ledger: this.#ledger,
+      logger: this.#logger,
+      clock: this.#clock,
+      connectors: deps.connectors,
+    });
+  }
+
+  get providerName(): string {
+    return this.#provider.name;
+  }
+
+  // ---------------------------------------------------------------- mandates
+
+  async createMandate(input: CreateMandateRequest): Promise<CreateMandateResponse> {
+    const purpose = input.purpose ?? PURPOSES.TRAVEL_BOOKING;
+    const template = getCapabilityTemplate(purpose);
+    if (!template) throw new BrokerInputError(`Unknown purpose '${purpose}'.`);
+
+    const now = this.#clock();
+    const validFrom = input.constraints.validFrom ?? now.toISOString();
+    const validUntil = input.constraints.validUntil ?? new Date(now.getTime() + DEFAULT_MANDATE_TTL_MS).toISOString();
+    if (Number.isNaN(Date.parse(validFrom)) || Number.isNaN(Date.parse(validUntil))) {
+      throw new BrokerInputError("validFrom/validUntil must be ISO dates.");
+    }
+    if (Date.parse(validUntil) <= Math.max(Date.parse(validFrom), now.getTime())) {
+      throw new BrokerInputError("validUntil must be in the future and after validFrom.");
+    }
+
+    const mandate: TaskMandate = {
+      mandateId: this.#ids.next("mdt"),
+      principal: input.principal,
+      purpose,
+      description: input.description,
+      rootAgentId: template.rootAgentId,
+      constraints: {
+        budgetUsd: input.constraints.budgetUsd,
+        destination: input.constraints.destination,
+        validFrom: new Date(validFrom).toISOString(),
+        validUntil: new Date(validUntil).toISOString(),
+      },
+      status: "ACTIVE",
+    };
+
+    const capability = this.#finalizeCapability({
+      capabilityId: this.#ids.next("cap"),
+      mandateId: mandate.mandateId,
+      principal: mandate.principal,
+      agentId: template.rootAgentId,
+      purpose,
+      permissions: template.permissions,
+      delegationDepth: 0,
+      maxDelegationDepth: template.maxDelegationDepth,
+      validFrom: mandate.constraints.validFrom,
+      expiresAt: mandate.constraints.validUntil,
+    });
+
+    const chain = await this.#provider.registerCapability(capability);
+    this.store.mandates.set(mandate.mandateId, mandate);
+    this.store.capabilities.set(capability.capabilityId, { capability, registrationTxHash: chain.txHash });
+    this.store.lifecycle.push({
+      type: "MANDATE_CREATED",
+      mandateId: mandate.mandateId,
+      capabilityId: capability.capabilityId,
+      agentId: capability.agentId,
+      chainTxHash: chain.txHash,
+      timestamp: now.toISOString(),
+    });
+    this.#logger.info("mandate.created", {
+      mandateId: mandate.mandateId,
+      capabilityId: capability.capabilityId,
+      agentId: capability.agentId,
+      provider: this.#provider.name,
+    });
+    return { mandate, capability: structuredClone(capability), chain };
+  }
+
+  // ---------------------------------------------------------- context requests
+
+  async requestContext(request: ContextRequest): Promise<DisclosureDecision> {
+    const started = performance.now();
+    const now = this.#clock();
+    const ctx = await resolveContext(this.store, this.#provider, request.capabilityId, request.mandateId, now);
+    const verdict = evaluateRequest(request, ctx);
+    const { verdict: finalVerdict, result } = this.#disclose(verdict, request, now);
+
+    const receipt = await this.#ledger.record({
+      kind: "context_request",
+      requestId: request.requestId,
+      mandateId: request.mandateId,
+      capabilityId: request.capabilityId,
+      agentId: request.agentId,
+      resource: request.resource,
+      operation: request.operation,
+      decision: finalVerdict.decision,
+      reasonCode: finalVerdict.reasonCode,
+      allowed: finalVerdict.allowed,
+      reason: finalVerdict.reason,
+      requestForHash: request,
+      resultForHash: result,
+      timestamp: now.toISOString(),
+    });
+
+    this.#logger.info("context.decision", {
+      requestId: request.requestId,
+      agentId: request.agentId,
+      capabilityId: request.capabilityId,
+      resource: request.resource,
+      operation: request.operation,
+      decision: finalVerdict.decision,
+      reasonCode: finalVerdict.reasonCode,
+      latencyMs: Math.round(performance.now() - started),
+    });
+
+    const decision: DisclosureDecision = {
+      requestId: request.requestId,
+      decision: finalVerdict.decision,
+      allowed: finalVerdict.allowed,
+      reasonCode: finalVerdict.reasonCode,
+      reason: finalVerdict.reason,
+      receiptId: receipt.receiptId,
+      capabilityId: request.capabilityId,
+      policyHash: ctx.lineage[0]?.capability.policyHash ?? ZERO_HASH,
+      timestamp: now.toISOString(),
+    };
+    if (finalVerdict.allowed) decision.result = result;
+    return decision;
+  }
+
+  /** Produces the minimum-disclosure result for an allowed verdict. Raw records never leave the vault. */
+  #disclose(verdict: PolicyVerdict, request: ContextRequest, now: Date): { verdict: PolicyVerdict; result?: unknown } {
+    if (!verdict.allowed) return { verdict };
+    try {
+      return { verdict, result: this.#produce(verdict, request, now) };
+    } catch (error) {
+      const reason =
+        error instanceof DerivationError
+          ? `Request parameters are outside what can be derived (${error.code}).`
+          : "Disclosure could not be produced; failing closed.";
+      return { verdict: { allowed: false, decision: "DENY", reasonCode: "OUT_OF_SCOPE", reason } };
+    }
+  }
+
+  #produce(verdict: Allowance, request: ContextRequest, now: Date): unknown {
+    switch (verdict.decision) {
+      case "DERIVE":
+        return this.#vault.derive(verdict.spec.resource, verdict.parameters);
+      case "SELECT":
+        return this.#vault.select(verdict.spec.resource, verdict.fields ?? []);
+      case "TOOL_BOUND": {
+        const capability = this.store.capabilities.get(request.capabilityId)!.capability;
+        const expiresMs = Math.min(now.getTime() + HANDLE_TTL_MS, Date.parse(capability.expiresAt));
+        const binding = this.#handles.issue({
+          mandateId: request.mandateId,
+          capabilityId: request.capabilityId,
+          agentId: request.agentId,
+          resource: verdict.spec.resource,
+          audience: verdict.audience!,
+          expiresAt: new Date(expiresMs).toISOString(),
+        });
+        const handle: ToolBoundHandle = {
+          handle: binding.handle,
+          resource: binding.resource,
+          audience: binding.audience,
+          expiresAt: binding.expiresAt,
+        };
+        return handle;
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------- tools
+
+  invokeTool(toolId: string, request: ToolInvocationRequest): Promise<ToolInvocationResult> {
+    return this.#tools.invoke(toolId, request);
+  }
+
+  // -------------------------------------------------------------- delegation
+
+  async delegate(input: CreateDelegationRequest): Promise<CreateDelegationResponse> {
+    const now = this.#clock();
+    const ctx = await resolveContext(this.store, this.#provider, input.parentCapabilityId, input.mandateId, now);
+    const verdict = validateDelegation(input, ctx);
+
+    if (!verdict.allowed) {
+      this.store.lifecycle.push({
+        type: "DELEGATION_REJECTED",
+        mandateId: input.mandateId,
+        capabilityId: input.parentCapabilityId,
+        agentId: input.childAgentId,
+        reasonCode: verdict.reasonCode,
+        reason: verdict.reason,
+        timestamp: now.toISOString(),
+      });
+      this.#logger.info("delegation.rejected", {
+        mandateId: input.mandateId,
+        capabilityId: input.parentCapabilityId,
+        agentId: input.childAgentId,
+        reasonCode: verdict.reasonCode,
+      });
+      return { allowed: false, reasonCode: verdict.reasonCode, reason: verdict.reason };
+    }
+
+    const child = this.#finalizeCapability({ ...verdict.child, capabilityId: this.#ids.next("cap") });
+    const delegation: Delegation = {
+      delegationId: this.#ids.next("dlg"),
+      mandateId: child.mandateId,
+      parentCapabilityId: input.parentCapabilityId,
+      childCapabilityId: child.capabilityId,
+      parentAgentId: input.parentAgentId,
+      childAgentId: child.agentId,
+      purpose: child.purpose,
+      createdAt: now.toISOString(),
+    };
+
+    const chain = await this.#provider.registerDelegation(delegation, child);
+    this.store.capabilities.set(child.capabilityId, { capability: child, registrationTxHash: chain.txHash });
+    this.store.delegations.push(delegation);
+    this.store.lifecycle.push({
+      type: "DELEGATION_CREATED",
+      mandateId: child.mandateId,
+      capabilityId: child.capabilityId,
+      agentId: child.agentId,
+      chainTxHash: chain.txHash,
+      timestamp: now.toISOString(),
+    });
+    this.#logger.info("delegation.created", {
+      mandateId: child.mandateId,
+      capabilityId: child.capabilityId,
+      agentId: child.agentId,
+    });
+    return { allowed: true, delegation, capability: structuredClone(child), chain };
+  }
+
+  // -------------------------------------------------------------- lifecycle
+
+  async revokeCapability(capabilityId: CapabilityId): Promise<CapabilityStateResponse | undefined> {
+    const record = this.store.capabilities.get(capabilityId);
+    if (!record) return undefined;
+
+    if (record.capability.status !== "REVOKED") {
+      const tx = await this.#provider.revokeCapability(capabilityId);
+      record.capability.status = "REVOKED";
+      record.revocationTxHash = tx.txHash;
+      const mandate = this.store.mandates.get(record.capability.mandateId);
+      if (mandate && record.capability.parentCapabilityId === undefined) mandate.status = "REVOKED";
+      this.store.lifecycle.push({
+        type: "CAPABILITY_REVOKED",
+        mandateId: record.capability.mandateId,
+        capabilityId,
+        agentId: record.capability.agentId,
+        chainTxHash: tx.txHash,
+        timestamp: this.#clock().toISOString(),
+      });
+      this.#logger.info("capability.revoked", { capabilityId, mandateId: record.capability.mandateId });
+    }
+    return this.getCapability(capabilityId);
+  }
+
+  async getCapability(capabilityId: CapabilityId): Promise<CapabilityStateResponse | undefined> {
+    const record = this.store.capabilities.get(capabilityId);
+    if (!record) return undefined;
+    const now = this.#clock();
+    const ctx = await resolveContext(this.store, this.#provider, capabilityId, record.capability.mandateId, now);
+
+    let effective = record.capability.status;
+    if (ctx.lineage.some((v) => v.chainStatus === "REVOKED" || v.capability.status === "REVOKED")) {
+      effective = "REVOKED";
+    } else if (
+      effective === "ACTIVE" &&
+      ctx.lineage.some((v) => v.chainStatus === "EXPIRED" || now.getTime() >= Date.parse(v.capability.expiresAt))
+    ) {
+      effective = "EXPIRED";
+    }
+
+    return {
+      capability: { ...structuredClone(record.capability), status: effective },
+      chain: {
+        provider: this.#provider.name,
+        status: ctx.lineage[0]?.chainStatus ?? "NOT_FOUND",
+        registrationTxHash: record.registrationTxHash,
+        revocationTxHash: record.revocationTxHash,
+      },
+      childCapabilityIds: this.store.childrenOf(capabilityId),
+    };
+  }
+
+  getAudit(mandateId: string): AuditResponse {
+    return {
+      mandateId,
+      entries: this.store.audit.filter((e) => e.receipt.mandateId === mandateId).map((e) => structuredClone(e)),
+      delegations: this.store.delegations.filter((d) => d.mandateId === mandateId).map((d) => ({ ...d })),
+      lifecycle: this.store.lifecycle.filter((e) => e.mandateId === mandateId).map((e) => ({ ...e })),
+    };
+  }
+
+  /** Clears broker state (demo reset). The vault and provider are reset by the caller. */
+  reset(): void {
+    this.store.reset();
+    this.#handles.reset();
+  }
+
+  #finalizeCapability(fields: Omit<ContextCapability, "policyHash" | "status">): ContextCapability {
+    return { ...fields, status: "ACTIVE", policyHash: computePolicyHash(fields) };
+  }
+}

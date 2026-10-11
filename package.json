@@ -1,0 +1,25 @@
+{
+  "name": "contextcaps",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev:broker": "tsx watch services/broker/src/main.ts",
+    "start:broker": "tsx services/broker/src/main.ts",
+    "test": "vitest run",
+    "test:broker": "vitest run tests/broker",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
