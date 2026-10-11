@@ -10,6 +10,7 @@ export {
   ContractSdkCapabilityStateProvider,
   type ContractClientLike,
 } from "./chain/contractSdkProvider";
+export { toBytes32Id } from "./chain/ids";
 export { DECISION_CODES, type CapabilityStateProvider, type OnchainCapabilityState } from "./chain/stateProvider";
 export { MockBookingConnector, type BookingRecord } from "./tools/bookingConnector";
 export type { ToolConnector } from "./tools/connector";
