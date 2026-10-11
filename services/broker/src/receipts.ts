@@ -27,9 +27,15 @@ export interface ReceiptInput {
 /**
  * Builds DisclosureReceipts and anchors them through the trust layer.
  *
- * requestHash = sha256(canonical request)           — verifiable by anyone holding the request
- * resultHash  = HMAC-sha256(receiptKey, canonical result) — hiding commitment; small result
- *               spaces (e.g. {"valid":true}) cannot be brute-forced from on-chain data.
+ * requestHash = SHA-256(canonical request JSON)
+ *   Anyone holding the original request can recompute it.
+ *
+ * resultHash = HMAC-SHA256(receiptKey, canonical result JSON)
+ *   A keyed commitment for sensitive low-entropy derived outputs. Small result
+ *   spaces (e.g. {"valid":true}) cannot be brute-forced from anchored data
+ *   without the key. It is NOT publicly recomputable: only a verifier holding
+ *   RECEIPT_HMAC_KEY (the broker operator, or an auditor it shares the key
+ *   with) can check a claimed result against it. Denials carry no resultHash.
  */
 export class ReceiptLedger {
   readonly #store: BrokerStore;

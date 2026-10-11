@@ -1,6 +1,8 @@
 import {
+  canonicalJson,
   computePolicyHash,
   deny,
+  sha256Hex,
   evaluateRequest,
   getCapabilityTemplate,
   PURPOSES,
@@ -174,6 +176,7 @@ export class ContextBroker {
     this.store.mandates.set(mandate.mandateId, mandate);
     this.store.capabilities.set(capability.capabilityId, { capability, registrationTxHash: chain.txHash });
     this.store.lifecycle.push({
+      eventId: this.#ids.next("evt"),
       type: "MANDATE_CREATED",
       mandateId: mandate.mandateId,
       capabilityId: capability.capabilityId,
@@ -394,10 +397,13 @@ export class ContextBroker {
     const now = this.#clock();
     const ctx = await resolveContext(this.store, this.#provider, input.parentCapabilityId, input.mandateId, now);
     const verdict = forcedDenial ?? validateDelegation(input, ctx);
+    const requestHash = sha256Hex(canonicalJson(input));
 
     if (!verdict.allowed) {
       this.store.lifecycle.push({
+        eventId: this.#ids.next("evt"),
         type: "DELEGATION_REJECTED",
+        requestHash,
         mandateId: input.mandateId,
         capabilityId: input.parentCapabilityId,
         agentId: input.childAgentId,
@@ -430,7 +436,10 @@ export class ContextBroker {
     this.store.capabilities.set(child.capabilityId, { capability: child, registrationTxHash: chain.txHash });
     this.store.delegations.push(delegation);
     this.store.lifecycle.push({
+      eventId: this.#ids.next("evt"),
       type: "DELEGATION_CREATED",
+      requestHash,
+      delegationId: delegation.delegationId,
       mandateId: child.mandateId,
       capabilityId: child.capabilityId,
       agentId: child.agentId,
@@ -459,6 +468,7 @@ export class ContextBroker {
       const mandate = this.store.mandates.get(record.capability.mandateId);
       if (mandate && record.capability.parentCapabilityId === undefined) mandate.status = "REVOKED";
       this.store.lifecycle.push({
+        eventId: this.#ids.next("evt"),
         type: "CAPABILITY_REVOKED",
         mandateId: record.capability.mandateId,
         capabilityId,

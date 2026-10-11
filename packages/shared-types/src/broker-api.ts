@@ -176,7 +176,12 @@ export interface AuditEntry {
   kind: "context_request" | "tool_invocation";
 }
 
+/**
+ * Non-disclosure authorization events. Delegation decisions live here rather
+ * than in DisclosureReceipt because DisclosureMode has no delegation value.
+ */
 export interface LifecycleEvent {
+  eventId: string;
   type: "MANDATE_CREATED" | "DELEGATION_CREATED" | "DELEGATION_REJECTED" | "CAPABILITY_REVOKED";
   mandateId: MandateId;
   capabilityId: CapabilityId;
@@ -184,6 +189,10 @@ export interface LifecycleEvent {
   reasonCode?: string;
   reason?: string;
   chainTxHash?: string;
+  /** sha256 of the canonical delegation request (DELEGATION_* events). */
+  requestHash?: string;
+  /** Set on DELEGATION_CREATED. */
+  delegationId?: string;
   timestamp: string;
 }
 
