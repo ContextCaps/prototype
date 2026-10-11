@@ -5,6 +5,7 @@ import {
   MockBookingConnector,
   MockCapabilityStateProvider,
   sequentialIds,
+  type ToolConnector,
 } from "@contextcaps/broker";
 import { BOOKING_TOOL_ID, OPERATIONS } from "@contextcaps/policy";
 import { AGENT_IDS, RESOURCES, type ContextRequest, type CreateMandateResponse } from "@contextcaps/shared-types";
@@ -15,7 +16,7 @@ export const NOW = new Date("2026-10-12T09:00:00Z");
 export const MANDATE_VALID_UNTIL = "2026-10-20T00:00:00Z";
 export const TRIP = { destination: "Singapore", departureDate: "2026-10-17", returnDate: "2026-10-18" };
 
-export function makeHarness() {
+export function makeHarness(options: { extraConnectors?: ToolConnector[] } = {}) {
   let now = NOW;
   const clock = () => now;
   const provider = new MockCapabilityStateProvider(clock);
@@ -25,7 +26,7 @@ export function makeHarness() {
   const broker = new ContextBroker({
     vault,
     provider,
-    connectors: [booking],
+    connectors: [booking, ...(options.extraConnectors ?? [])],
     receiptKey: "test-receipt-key",
     clock,
     ids: sequentialIds(),
