@@ -15,7 +15,10 @@ export interface TravelTask {
 
 export interface AgentRunResult {
   scenario: "golden" | "retry";
-  status: "BOOKED" | "HALTED_BY_POLICY" | "NO_BOOKING";
+  /** Which planner produced this run. "scripted-fallback" = LLM failed before booking, scripted planner re-ran. */
+  planner: "scripted" | "llm" | "scripted-fallback";
+  status: "BOOKED" | "HALTED_BY_POLICY" | "NO_BOOKING" | "PLANNER_ERROR";
+  fallbackReason?: string;
   haltReasonCode?: string;
   summary: string;
   booking?: HotelRecommendation & { reference: string };
@@ -49,7 +52,12 @@ function plusDays(isoDate: string, days: number): string {
  * nothing here decides authorization.
  */
 export async function runTravelAgent(session: AgentSession, task: TravelTask, now: Date): Promise<AgentRunResult> {
-  const finish = (r: Omit<AgentRunResult, "scenario" | "trace">) => ({ scenario: "golden" as const, trace: [], ...r });
+  const finish = (r: Omit<AgentRunResult, "scenario" | "trace" | "planner">): AgentRunResult => ({
+    scenario: "golden",
+    planner: "scripted",
+    trace: [],
+    ...r,
+  });
   session.note(`Task: ${task.text}`);
   const { departureDate, returnDate } = nextWeekend(now);
   let childCapabilityId: string | undefined;
@@ -164,11 +172,11 @@ export async function runRetryAfterRevoke(session: AgentSession, now: Date): Pro
       requestedMode: "DERIVE",
       parameters: { from: `${departureDate}T00:00:00Z`, to: `${plusDays(returnDate, 1)}T00:00:00Z`, minHours: 24 },
     });
-    return { scenario: "retry", status: "NO_BOOKING", summary: "Request was still permitted.", trace: [] };
+    return { scenario: "retry", planner: "scripted", status: "NO_BOOKING", summary: "Request was still permitted.", trace: [] };
   } catch (error) {
     if (error instanceof AuthorityRevokedError) {
       session.note(`Stopping: authority withdrawn (${error.reasonCode}).`);
-      return { scenario: "retry", status: "HALTED_BY_POLICY", haltReasonCode: error.reasonCode, summary: error.message, trace: [] };
+      return { scenario: "retry", planner: "scripted", status: "HALTED_BY_POLICY", haltReasonCode: error.reasonCode, summary: error.message, trace: [] };
     }
     throw error;
   }

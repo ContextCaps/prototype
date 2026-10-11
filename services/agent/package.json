@@ -3,10 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "types": "./src/index.ts",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@contextcaps/policy": "0.1.0",
     "@contextcaps/shared-types": "0.1.0",
-    "@contextcaps/policy": "0.1.0"
+    "zod": "^4.6.6"
   }
 }

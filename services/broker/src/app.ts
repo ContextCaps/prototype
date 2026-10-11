@@ -1,3 +1,4 @@
+import { AnthropicLlmProvider, runLlmScenario, type LlmProvider } from "@contextcaps/agent";
 import { ContextVault } from "@contextcaps/vault";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "./api/server";
@@ -14,6 +15,8 @@ export interface AppOverrides {
   ids?: IdGenerator & { reset?(): void };
   logger?: SafeLogger;
   provider?: CapabilityStateProvider;
+  /** Overrides the LLM planner provider (e.g. a deterministic fake in tests). */
+  llmProvider?: LlmProvider;
 }
 
 export interface BrokerApp {
@@ -26,7 +29,8 @@ export interface BrokerApp {
 
 /** Composition root: wires vault, trust-layer provider, tools, broker and HTTP API. */
 export async function createBrokerApp(
-  config: Pick<BrokerConfig, "receiptKey" | "demoMode" | "corsOrigins" | "chainProvider">,
+  config: Pick<BrokerConfig, "receiptKey" | "demoMode" | "corsOrigins" | "chainProvider"> &
+    Partial<Pick<BrokerConfig, "llmPlanner" | "llmModel" | "llmEffort">>,
   overrides: AppOverrides = {},
 ): Promise<BrokerApp> {
   const clock = overrides.clock ?? systemClock;
@@ -54,9 +58,14 @@ export async function createBrokerApp(
     logger,
   });
 
+  const llmProvider =
+    overrides.llmProvider ??
+    (config.llmPlanner === "anthropic" ? new AnthropicLlmProvider({ model: config.llmModel, effort: config.llmEffort }) : undefined);
+
   const server = await buildServer({
     broker,
     clock,
+    llmRunner: llmProvider ? (input) => runLlmScenario(broker, input, llmProvider) : undefined,
     demoMode: config.demoMode,
     corsOrigins: config.corsOrigins,
     onReset: () => {
