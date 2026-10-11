@@ -27,7 +27,12 @@ export function sequentialIds(): IdGenerator & { reset(): void } {
   };
 }
 
-/** Unguessable bearer value for tool-bound handles. Never sequential. */
+/** Unguessable, non-semantic bearer value (128 bits). Never sequential, never derived from data. */
+export function secretToken(prefix: "tbh" | "ses"): string {
+  return `${prefix}_${randomBytes(16).toString("hex")}`;
+}
+
+/** Opaque handle for TOOL_BOUND disclosure. */
 export function secretHandleId(): string {
-  return `tbh_${randomBytes(16).toString("hex")}`;
+  return secretToken("tbh");
 }

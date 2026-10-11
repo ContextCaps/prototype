@@ -38,14 +38,14 @@ export class ToolGateway {
     this.#connectors = new Map(deps.connectors.map((c) => [c.toolId, c]));
   }
 
-  async invoke(toolId: string, request: ToolInvocationRequest): Promise<ToolInvocationResult> {
+  async invoke(toolId: string, request: ToolInvocationRequest, forcedRejection?: Rejection): Promise<ToolInvocationResult> {
     const started = performance.now();
     const { clock, logger } = this.#deps;
     const now = clock();
     const timestamp = now.toISOString();
     const requestForHash = { ...request, toolId };
 
-    const outcome = await this.#authorizeAndExecute(toolId, request, now);
+    const outcome = forcedRejection ? { rejection: forcedRejection } : await this.#authorizeAndExecute(toolId, request, now);
 
     const receiptIds: string[] = [];
     if ("rejection" in outcome) {

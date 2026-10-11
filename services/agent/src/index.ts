@@ -1,38 +1,55 @@
-import type { TaskMandate } from "@contextcaps/shared-types";
+import type { AgentSessionGrant, TaskMandate } from "@contextcaps/shared-types";
+import { createEnvironment, type InjectionScenario } from "./environment";
 import type { BrokerPort } from "./port";
 import { AgentSession } from "./session";
 import { Trace } from "./trace";
 import { GOLDEN_TASK, runRetryAfterRevoke, runTravelAgent, type AgentRunResult } from "./travelAgent";
 
 export type { BrokerPort } from "./port";
-export { AgentSession, AuthorityRevokedError, HALTING_REASON_CODES, type ContextAsk, type VisibleDecision } from "./session";
+export {
+  AgentSession,
+  AuthorityRevokedError,
+  HALTING_REASON_CODES,
+  type ContextAsk,
+  type SessionIdentity,
+  type VisibleDecision,
+  type VisibleDelegation,
+} from "./session";
 export { Trace, type TraceEntry } from "./trace";
 export { runHotelAgent, type HotelRecommendation, type HotelSearchTask } from "./hotelAgent";
 export { GOLDEN_TASK, nextWeekend, runTravelAgent, runRetryAfterRevoke, type AgentRunResult, type TravelTask } from "./travelAgent";
-export { DEALS_PAGE_URL, MALICIOUS_DEALS_PAGE } from "./environment";
+export {
+  BOOKING_PAGE_URL,
+  DEALS_PAGE_URL,
+  MALICIOUS_BOOKING_PAGE,
+  MALICIOUS_DEALS_PAGE,
+  MALICIOUS_HOTEL_DESCRIPTION,
+  MALICIOUS_PROVIDER_NOTICE,
+  createEnvironment,
+  goldenEnvironment,
+  type AgentEnvironment,
+  type HotelOffer,
+  type InjectionScenario,
+} from "./environment";
 
 export interface RunScenarioInput {
   mandate: TaskMandate;
-  capabilityId: string;
+  /** Broker-issued session for the mandate's root agent. */
+  session: AgentSessionGrant;
   scenario?: "golden" | "retry";
+  /** Which untrusted-content injection the world contains (default: SYSTEM OVERRIDE deals page). */
+  injection?: InjectionScenario;
   clock?: () => Date;
 }
 
-/** Entry point used by the broker API: runs the Travel Agent against the real broker path. */
+/** Entry point used by the broker API: runs the scripted Travel Agent against the real broker path. */
 export async function runAgentScenario(port: BrokerPort, input: RunScenarioInput): Promise<AgentRunResult> {
   const clock = input.clock ?? (() => new Date());
   const trace = new Trace();
-  const session = new AgentSession(
-    port,
-    {
-      agentId: input.mandate.rootAgentId,
-      mandateId: input.mandate.mandateId,
-      capabilityId: input.capabilityId,
-      purpose: input.mandate.purpose,
-    },
-    trace,
+  const session = new AgentSession(port, input.session, trace, {
     clock,
-  );
+    environment: createEnvironment(input.injection ?? "deals_page"),
+  });
 
   const result =
     input.scenario === "retry"

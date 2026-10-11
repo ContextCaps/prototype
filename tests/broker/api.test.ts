@@ -8,6 +8,7 @@ describe("Broker HTTP API /api/v1", () => {
   let app: BrokerApp;
   let logLines: string[];
   let mandate: CreateMandateResponse;
+  let rootSession: string | undefined;
   let n = 0;
 
   const ctxRequest = (overrides: Record<string, unknown>) => ({
@@ -20,10 +21,18 @@ describe("Broker HTTP API /api/v1", () => {
     ...overrides,
   });
 
-  const post = (url: string, payload: unknown) => app.server.inject({ method: "POST", url, payload: payload as object });
+  /** POSTs as the mandate's root agent (travel-agent) unless another session token is given. */
+  const post = (url: string, payload: unknown, sessionId: string | undefined = rootSession) =>
+    app.server.inject({
+      method: "POST",
+      url,
+      payload: payload as object,
+      headers: sessionId ? { "x-contextcaps-session": sessionId } : {},
+    });
 
   beforeEach(async () => {
     logLines = [];
+    rootSession = undefined;
     const clock = () => NOW;
     app = await createBrokerApp(
       { receiptKey: "test-key", demoMode: true, corsOrigins: true, chainProvider: "mock" },
@@ -41,6 +50,7 @@ describe("Broker HTTP API /api/v1", () => {
     });
     expect(res.statusCode).toBe(201);
     mandate = res.json();
+    rootSession = mandate.session.sessionId;
   });
 
   afterEach(async () => {

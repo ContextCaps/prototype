@@ -5,9 +5,11 @@ import {
   PURPOSES,
   validateDelegation,
   type Allowance,
+  type Denial,
   type PolicyVerdict,
 } from "@contextcaps/policy";
 import type {
+  AgentSessionGrant,
   AuditResponse,
   CapabilityId,
   CapabilityStateResponse,
@@ -19,6 +21,10 @@ import type {
   CreateMandateResponse,
   Delegation,
   DisclosureDecision,
+  SessionContextRequest,
+  SessionDelegationRequest,
+  SessionIdentityEcho,
+  SessionToolInvocationRequest,
   TaskMandate,
   ToolBoundHandle,
   ToolInvocationRequest,
@@ -31,6 +37,7 @@ import { resolveContext } from "./lineage";
 import { silentLogger, type SafeLogger } from "./logger";
 import { ReceiptLedger } from "./receipts";
 import { randomIds, systemClock, type Clock, type IdGenerator } from "./runtime";
+import { SessionStore } from "./sessions";
 import { BrokerStore } from "./store";
 import type { ToolConnector } from "./tools/connector";
 import { ToolGateway } from "./tools/toolGateway";
@@ -44,6 +51,14 @@ export interface BrokerDeps {
   clock?: Clock;
   ids?: IdGenerator;
   logger?: SafeLogger;
+}
+
+/** Thrown when a session token is missing or unknown (HTTP 401). No receipt: there is no authenticated identity. */
+export class SessionError extends Error {
+  constructor() {
+    super("Unknown or missing agent session.");
+    this.name = "SessionError";
+  }
 }
 
 /** Thrown for malformed API input that never reaches policy evaluation. */
@@ -68,6 +83,7 @@ const DEFAULT_MANDATE_TTL_MS = 24 * 60 * 60 * 1000;
  */
 export class ContextBroker {
   readonly store = new BrokerStore();
+  readonly sessions = new SessionStore();
   readonly #vault: ContextVault;
   readonly #provider: CapabilityStateProvider;
   readonly #clock: Clock;
@@ -168,16 +184,21 @@ export class ContextBroker {
       agentId: capability.agentId,
       provider: this.#provider.name,
     });
-    return { mandate, capability: structuredClone(capability), chain };
+    const session = this.sessions.issue(capability);
+    return { mandate, capability: structuredClone(capability), chain, session };
   }
 
   // ---------------------------------------------------------- context requests
 
-  async requestContext(request: ContextRequest): Promise<DisclosureDecision> {
+  /**
+   * Trusted in-process entry point: the caller vouches for `request`'s identity
+   * fields. The HTTP API and the agent runtime use `requestContextForSession`.
+   */
+  async requestContext(request: ContextRequest, forcedDenial?: Denial): Promise<DisclosureDecision> {
     const started = performance.now();
     const now = this.#clock();
     const ctx = await resolveContext(this.store, this.#provider, request.capabilityId, request.mandateId, now);
-    const verdict = evaluateRequest(request, ctx);
+    const verdict: PolicyVerdict = forcedDenial ?? evaluateRequest(request, ctx);
     const { verdict: finalVerdict, result } = this.#disclose(verdict, request, now);
 
     const receipt = await this.#ledger.record({
@@ -265,6 +286,84 @@ export class ContextBroker {
     }
   }
 
+  // ------------------------------------------------------- session-bound API
+
+  /** Context request whose identity is resolved from the session, never from the body. */
+  async requestContextForSession(sessionId: string | undefined, body: SessionContextRequest): Promise<DisclosureDecision> {
+    const session = this.#requireSession(sessionId);
+    const request: ContextRequest = {
+      requestId: body.requestId ?? this.#ids.next("req"),
+      mandateId: session.mandateId,
+      capabilityId: session.capabilityId,
+      agentId: session.agentId,
+      purpose: body.purpose ?? session.purpose,
+      resource: body.resource,
+      operation: body.operation,
+      requestedMode: body.requestedMode,
+      parameters: body.parameters,
+      audience: body.audience,
+      timestamp: body.timestamp ?? this.#clock().toISOString(),
+    };
+    return this.requestContext(request, identityMismatch(session, body));
+  }
+
+  /** Delegation from the session's capability (the session is the parent). */
+  async delegateForSession(sessionId: string | undefined, body: SessionDelegationRequest): Promise<CreateDelegationResponse> {
+    const session = this.#requireSession(sessionId);
+    const mismatch = identityMismatch(session, {
+      mandateId: body.mandateId,
+      capabilityId: body.parentCapabilityId ?? body.capabilityId,
+      agentId: body.parentAgentId ?? body.agentId,
+    });
+    const input: CreateDelegationRequest = {
+      mandateId: session.mandateId,
+      parentCapabilityId: session.capabilityId,
+      parentAgentId: session.agentId,
+      childAgentId: body.childAgentId,
+      purpose: body.purpose ?? session.purpose,
+      permissions: body.permissions,
+      expiresAt: body.expiresAt,
+      maxDelegationDepth: body.maxDelegationDepth,
+    };
+    return this.delegate(input, mismatch);
+  }
+
+  async invokeToolForSession(
+    sessionId: string | undefined,
+    toolId: string,
+    body: SessionToolInvocationRequest,
+  ): Promise<ToolInvocationResult> {
+    const session = this.#requireSession(sessionId);
+    const request: ToolInvocationRequest = {
+      requestId: body.requestId ?? this.#ids.next("req"),
+      mandateId: session.mandateId,
+      capabilityId: session.capabilityId,
+      agentId: session.agentId,
+      purpose: body.purpose ?? session.purpose,
+      arguments: body.arguments,
+    };
+    return this.#tools.invoke(toolId, request, identityMismatch(session, body));
+  }
+
+  /** Root agent session of a mandate — for the trusted in-process agent runner only. */
+  rootSession(mandateId: string): AgentSessionGrant | undefined {
+    for (const { capability } of this.store.capabilities.values()) {
+      if (capability.mandateId === mandateId && capability.parentCapabilityId === undefined) {
+        return this.sessions.rootSessionFor(mandateId, capability.capabilityId);
+      }
+    }
+    return undefined;
+  }
+
+  #requireSession(sessionId: string | undefined): AgentSessionGrant {
+    const session = this.sessions.resolve(sessionId);
+    if (!session) {
+      this.#logger.warn("session.rejected", {});
+      throw new SessionError();
+    }
+    return session;
+  }
+
   // ------------------------------------------------------------------- tools
 
   invokeTool(toolId: string, request: ToolInvocationRequest): Promise<ToolInvocationResult> {
@@ -273,10 +372,11 @@ export class ContextBroker {
 
   // -------------------------------------------------------------- delegation
 
-  async delegate(input: CreateDelegationRequest): Promise<CreateDelegationResponse> {
+  /** Trusted in-process entry point; the HTTP API uses `delegateForSession`. */
+  async delegate(input: CreateDelegationRequest, forcedDenial?: Denial): Promise<CreateDelegationResponse> {
     const now = this.#clock();
     const ctx = await resolveContext(this.store, this.#provider, input.parentCapabilityId, input.mandateId, now);
-    const verdict = validateDelegation(input, ctx);
+    const verdict = forcedDenial ?? validateDelegation(input, ctx);
 
     if (!verdict.allowed) {
       this.store.lifecycle.push({
@@ -325,7 +425,8 @@ export class ContextBroker {
       capabilityId: child.capabilityId,
       agentId: child.agentId,
     });
-    return { allowed: true, delegation, capability: structuredClone(child), chain };
+    const childSession = this.sessions.issue(child);
+    return { allowed: true, delegation, capability: structuredClone(child), chain, childSession };
   }
 
   // -------------------------------------------------------------- lifecycle
@@ -393,10 +494,29 @@ export class ContextBroker {
   /** Clears broker state (demo reset). The vault and provider are reset by the caller. */
   reset(): void {
     this.store.reset();
+    this.sessions.reset();
     this.#handles.reset();
   }
 
   #finalizeCapability(fields: Omit<ContextCapability, "policyHash" | "status">): ContextCapability {
     return { ...fields, status: "ACTIVE", policyHash: computePolicyHash(fields) };
   }
+}
+
+/**
+ * A session-bound body may echo identity fields (backward compatibility), but
+ * they must match the session. A mismatch is an impersonation attempt: it is
+ * denied and receipted rather than silently corrected.
+ */
+function identityMismatch(session: AgentSessionGrant, body: SessionIdentityEcho): Denial | undefined {
+  if (body.agentId !== undefined && body.agentId !== session.agentId) {
+    return { allowed: false, decision: "DENY", reasonCode: "AGENT_MISMATCH", reason: "Request claimed an agent identity other than its session's." };
+  }
+  if (
+    (body.capabilityId !== undefined && body.capabilityId !== session.capabilityId) ||
+    (body.mandateId !== undefined && body.mandateId !== session.mandateId)
+  ) {
+    return { allowed: false, decision: "DENY", reasonCode: "INVALID_CAPABILITY", reason: "Request referenced a capability other than its session's." };
+  }
+  return undefined;
 }

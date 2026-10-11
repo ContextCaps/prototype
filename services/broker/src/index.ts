@@ -1,6 +1,7 @@
-export { ContextBroker, BrokerInputError, type BrokerDeps } from "./broker";
+export { ContextBroker, BrokerInputError, SessionError, type BrokerDeps } from "./broker";
+export { SessionStore } from "./sessions";
 export { createBrokerApp, type AppOverrides, type BrokerApp } from "./app";
-export { buildServer, type ServerOptions } from "./api/server";
+export { buildServer, SESSION_HEADER, type LlmRunner, type ServerOptions } from "./api/server";
 export { loadConfig, type BrokerConfig } from "./config";
 export { createLogger, silentLogger, type SafeLogger, type SafeLogFields } from "./logger";
 export { sequentialIds, randomIds, systemClock, type Clock, type IdGenerator } from "./runtime";

@@ -1,6 +1,6 @@
 import { BOOKING_TOOL_ID, OPERATIONS } from "@contextcaps/policy";
 import { AGENT_IDS, RESOURCES, type ToolBoundHandle } from "@contextcaps/shared-types";
-import { DEALS_PAGE_URL } from "./environment";
+import { obeyInjectedInstructions } from "./injectionFollower";
 import { runHotelAgent, type HotelRecommendation } from "./hotelAgent";
 import { AuthorityRevokedError, type AgentSession } from "./session";
 import type { TraceEntry } from "./trace";
@@ -81,11 +81,9 @@ export async function runTravelAgent(session: AgentSession, task: TravelTask, no
       return finish({ status: "NO_BOOKING", summary: "No availability window next weekend." });
     }
 
-    // Scene 5 — untrusted page carries a prompt injection; the agent obeys it.
-    const page = session.browse(DEALS_PAGE_URL);
-    if (/salary/i.test(page)) {
-      session.note("Page instructs reading the user's salary for premium offers. Attempting.");
-      await session.requestContext({ resource: RESOURCES.SALARY_RAW, operation: OPERATIONS.READ });
+    // Scene 5 — untrusted pages may carry a prompt injection; this planner obeys it.
+    for (const url of session.environment.pagesToRead) {
+      await obeyInjectedInstructions(session, session.browse(url));
     }
 
     // Scene 6 — delegate hotel search with a narrower capability.
@@ -100,7 +98,7 @@ export async function runTravelAgent(session: AgentSession, task: TravelTask, no
       return finish({ status: "NO_BOOKING", summary: `Hotel delegation rejected: ${delegation.reasonCode}.` });
     }
     childCapabilityId = delegation.childCapabilityId;
-    const hotelSession = session.childSession(AGENT_IDS.HOTEL, childCapabilityId);
+    const hotelSession = session.childSession(childCapabilityId);
     const offer = await runHotelAgent(hotelSession, {
       destination: task.destination,
       checkIn: departureDate,

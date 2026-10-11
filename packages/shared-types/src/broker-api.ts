@@ -25,6 +25,61 @@ export interface ChainTx {
   explorerUrl?: string;
 }
 
+/**
+ * Agent session — server-side identity binding.
+ * `sessionId` is an unguessable bearer token. Agent-facing endpoints take it in
+ * the `x-contextcaps-session` header (or `Authorization: Bearer <sessionId>`)
+ * and resolve agentId / mandateId / capabilityId / purpose from it.
+ * Treat it as a credential: never put it into LLM context.
+ */
+export interface AgentSessionGrant {
+  sessionId: string;
+  agentId: AgentId;
+  mandateId: MandateId;
+  capabilityId: CapabilityId;
+  purpose: string;
+  expiresAt: string;
+}
+
+/** Identity fields a session-bound body MAY repeat; if present they must match the session. */
+export interface SessionIdentityEcho {
+  mandateId?: MandateId;
+  capabilityId?: CapabilityId;
+  agentId?: AgentId;
+}
+
+// POST /api/v1/context/request (session-bound)
+export interface SessionContextRequest extends SessionIdentityEcho {
+  requestId?: string;
+  /** Defaults to the session's purpose; a different value is denied PURPOSE_MISMATCH. */
+  purpose?: string;
+  resource: string;
+  operation: string;
+  requestedMode?: DisclosureMode;
+  parameters?: Record<string, unknown>;
+  audience?: string;
+  timestamp?: string;
+}
+
+// POST /api/v1/delegations (session-bound; the session is the PARENT)
+export interface SessionDelegationRequest extends SessionIdentityEcho {
+  childAgentId: AgentId;
+  purpose?: string;
+  permissions: ContextPermission[];
+  expiresAt?: string;
+  maxDelegationDepth?: number;
+  /** Legacy echo of the parent; must match the session if present. */
+  parentCapabilityId?: CapabilityId;
+  parentAgentId?: AgentId;
+}
+
+// POST /api/v1/tools/:toolId/invoke (session-bound)
+export interface SessionToolInvocationRequest extends SessionIdentityEcho {
+  requestId?: string;
+  purpose?: string;
+  arguments: Record<string, unknown>;
+}
+
 // POST /api/v1/mandates
 export interface CreateMandateRequest {
   principal: string;
@@ -45,6 +100,8 @@ export interface CreateMandateResponse {
   mandate: TaskMandate;
   capability: ContextCapability;
   chain: ChainTx;
+  /** Session for the root agent (e.g. travel-agent). */
+  session: AgentSessionGrant;
 }
 
 // POST /api/v1/delegations
@@ -63,7 +120,7 @@ export interface CreateDelegationRequest {
 
 /** 201 when allowed; 403 with the denial shape otherwise. */
 export type CreateDelegationResponse =
-  | { allowed: true; delegation: Delegation; capability: ContextCapability; chain: ChainTx }
+  | { allowed: true; delegation: Delegation; capability: ContextCapability; chain: ChainTx; childSession: AgentSessionGrant }
   | { allowed: false; reasonCode: string; reason: string };
 
 // GET /api/v1/capabilities/:id  and  POST /api/v1/capabilities/:id/revoke

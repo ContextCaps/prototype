@@ -24,7 +24,7 @@ describe("Golden demo flow (agent runtime → real broker path)", () => {
 
     const run = await runAgentScenario(h.broker, {
       mandate: mandate.mandate,
-      capabilityId: mandate.capability.capabilityId,
+      session: mandate.session,
       clock: h.clock,
     });
 
@@ -65,7 +65,7 @@ describe("Golden demo flow (agent runtime → real broker path)", () => {
     await h.broker.revokeCapability(mandate.capability.capabilityId);
     const retry = await runAgentScenario(h.broker, {
       mandate: mandate.mandate,
-      capabilityId: mandate.capability.capabilityId,
+      session: mandate.session,
       scenario: "retry",
       clock: h.clock,
     });
@@ -84,7 +84,7 @@ describe("Golden demo flow (agent runtime → real broker path)", () => {
     await h.broker.revokeCapability(mandate.capability.capabilityId);
     const run = await runAgentScenario(h.broker, {
       mandate: mandate.mandate,
-      capabilityId: mandate.capability.capabilityId,
+      session: mandate.session,
       clock: h.clock,
     });
     expect(run).toMatchObject({ status: "HALTED_BY_POLICY", haltReasonCode: "CAPABILITY_REVOKED" });
