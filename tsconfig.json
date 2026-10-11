@@ -8,6 +8,7 @@
     "packages/policy/src",
     "services/vault/src",
     "services/broker/src",
+    "services/broker/scripts",
     "services/agent/src",
     "tests/broker"
   ]
