@@ -267,17 +267,17 @@ Monad deployment config
 ## Definition of Done
 
 ```text
-[ ] Broker works
-[ ] no direct Agent → Vault path
-[ ] DENY works
-[ ] DERIVE works
-[ ] SELECT works
-[ ] TOOL_BOUND works
-[ ] delegation attenuation works
-[ ] malicious salary request blocked
-[ ] Person 1 SDK integrated
-[ ] audit API available
-[ ] tests pass
+[x] Broker works
+[x] no direct Agent → Vault path        (architecture test)
+[x] DENY works
+[x] DERIVE works
+[x] SELECT works
+[x] TOOL_BOUND works
+[x] delegation attenuation works
+[x] malicious salary request blocked
+[~] Person 1 SDK integrated             adapter + conformance suite ready; waiting on SDK
+[x] audit API available
+[x] tests pass                          (npm test — status in PROGRESS.md)
 ```
 
 ## Priority

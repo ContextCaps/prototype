@@ -382,40 +382,150 @@ Returns current state.
 
 Returns decisions/receipts for UI.
 
-### 9.1 Implementation notes (Person 2, additive — affects P1/P3)
+### 9.1 Broker API handoff (Person 2 — additive, affects P1/P3)
 
-Typed payloads for every endpoint live in `packages/shared-types/src/broker-api.ts`
-(§6 types are unchanged). Additions:
+Typed payloads for every endpoint: `packages/shared-types/src/broker-api.ts`
+(§6 types are unchanged and reused).
 
-```text
-POST /tools/:toolId/invoke   tool-bound call; agent passes opaque handles, gateway injects secrets
-POST /agent/runs             { mandateId, scenario?: "golden" | "retry" } → run result + LLM-visible trace
-POST /demo/reset             only when DEMO_MODE=true
-GET  /health
-```
-
-HTTP conventions: `/context/request` always returns 200 with a `DisclosureDecision`
-(DENY is a decision, not an error). `/delegations` returns 201, or 403 with
-`{ allowed: false, reasonCode, reason }`. Malformed input → 400 `INVALID_REQUEST`.
-
-Resource / operation pairs (`ContextRequest.operation`):
+**Run it**
 
 ```text
-passport.raw, calendar.raw, salary.raw, payment.raw   read            (always DENY)
-passport.validity                                     valid_for_trip  params { destination, departureDate, returnDate }
-calendar.availability                                 available_window params { from, to, minHours? }  (Scenes 4/8 "calendar.available_window")
-travel.hotel_preferences                              select          params { fields? }
-profile.legal_name, payment.handle                    issue_handle    audience "demo-booking-connector"
+npm install
+npm run start:broker                       → http://127.0.0.1:8787/api/v1   (env: .env.example)
+npm run demo:reset                         → clear state (DEMO_MODE=true)
+npm run demo:seed                          → reset + create the travel mandate; prints ids + root session
+npm run demo:golden-flow [-- --local]      → walks all 9 scenes over HTTP; exit 1 on any surprise
+npm test / npm run typecheck / npm run bench:broker
 ```
 
-Reason-code rule for raw resources (reconciles Scene 2 with Scene 5 / INV-05):
-raw resource whose family is in the capability (passport, calendar, payment) →
-`RAW_DISCLOSURE_FORBIDDEN`; family not in the capability at all (salary) → `OUT_OF_SCOPE`.
-Malformed or off-task parameters (e.g. passport validity for a destination other
-than the mandate's) → `DENY / OUT_OF_SCOPE`.
+In `DEMO_MODE` ids are sequential after every reset (`mdt_0001`, `cap_0001`,
+`cap_0002` for the hotel child). Session tokens and tool handles are always random.
 
-Revocation of a parent revokes its whole subtree (the broker checks every ancestor's
-state on each request).
+**Two kinds of caller**
+
+| Caller | Endpoints | Identity |
+|---|---|---|
+| User / web app (principal) | `POST /mandates`, `POST /capabilities/:id/revoke`, `GET /capabilities/:id`, `GET /audit`, `POST /agent/runs`, `POST /demo/reset`, `GET /health` | none in MVP (wallet signature is future work) |
+| Agent | `POST /context/request`, `POST /delegations`, `POST /tools/:toolId/invoke` | **session header required** |
+
+**Agent sessions.** `POST /mandates` returns `session` (root agent) and a successful
+`POST /delegations` returns `childSession`. Send it as `x-contextcaps-session: ses_…`
+(or `Authorization: Bearer ses_…`). The broker resolves `agentId`, `mandateId`,
+`capabilityId` and `purpose` from the session; body copies of these fields are
+optional, and a value that differs from the session is **denied and receipted**
+(`AGENT_MISMATCH` / `INVALID_CAPABILITY`). Missing or unknown session →
+`401 { error: "INVALID_SESSION", allowed: false, decision: "DENY" }`, no receipt.
+Treat the session token as a credential: never show it to an LLM or log it.
+
+**HTTP conventions.** `/context/request` and `/tools/:id/invoke` return 200 with a
+decision even for DENY (DENY is a result, not an error). `/delegations` → 201, or 403
+with `{ allowed: false, reasonCode, reason }`. Malformed body → 400 `INVALID_REQUEST`
+(paths only, values never echoed). Trust layer unreachable → requests fail closed.
+
+**Examples**
+
+```http
+POST /api/v1/mandates
+{ "principal": "0xA11CE", "description": "Book my Singapore trip next weekend under $700.",
+  "constraints": { "budgetUsd": 700, "destination": "Singapore" } }
+→ 201 { "mandate": { "mandateId": "mdt_0001", "purpose": "travel-booking", "status": "ACTIVE", … },
+        "capability": { "capabilityId": "cap_0001", "agentId": "travel-agent", "permissions": [ … ], "policyHash": "0x…", … },
+        "chain": { "txHash": "0x…" },
+        "session": { "sessionId": "ses_…", "agentId": "travel-agent", "capabilityId": "cap_0001", … } }
+
+POST /api/v1/context/request            x-contextcaps-session: ses_…
+{ "resource": "passport.validity", "operation": "valid_for_trip",
+  "parameters": { "destination": "Singapore", "departureDate": "2026-10-17", "returnDate": "2026-10-18" } }
+→ 200 { "requestId": "req_0001", "decision": "DERIVE", "allowed": true, "reasonCode": "ALLOW_DERIVED",
+        "reason": "…", "result": { "valid": true }, "receiptId": "rcpt_0001", "capabilityId": "cap_0001",
+        "policyHash": "0x…", "timestamp": "…" }
+
+{ "resource": "salary.raw", "operation": "read" }
+→ 200 { "decision": "DENY", "allowed": false, "reasonCode": "OUT_OF_SCOPE", "receiptId": "rcpt_0002", … }   (no result)
+
+{ "resource": "payment.handle", "operation": "issue_handle", "requestedMode": "TOOL_BOUND", "audience": "demo-booking-connector" }
+→ 200 { "decision": "TOOL_BOUND", "result": { "handle": "tbh_…", "resource": "payment.handle",
+        "audience": "demo-booking-connector", "expiresAt": "…" }, … }
+
+POST /api/v1/delegations                x-contextcaps-session: <travel-agent session>
+{ "childAgentId": "hotel-agent", "permissions": [
+    { "resource": "calendar.availability", "allowedModes": ["DERIVE"], "delegable": false },
+    { "resource": "travel.hotel_preferences", "allowedModes": ["SELECT"], "delegable": false } ] }
+→ 201 { "allowed": true, "delegation": { "delegationId": "dlg_0001", … },
+        "capability": { "capabilityId": "cap_0002", "agentId": "hotel-agent", "delegationDepth": 1, … },
+        "chain": { "txHash": "0x…" }, "childSession": { "sessionId": "ses_…", "agentId": "hotel-agent", … } }
+
+POST /api/v1/tools/demo-booking-connector/invoke      x-contextcaps-session: <travel-agent session>
+{ "arguments": { "offerId": "SG-HTL-MRNA-02", "checkIn": "2026-10-17", "checkOut": "2026-10-18",
+                 "amountUsd": 189, "identityHandle": "tbh_…", "paymentHandle": "tbh_…" } }
+→ 200 { "allowed": true, "decision": "TOOL_BOUND", "reasonCode": "ALLOW_TOOL_BOUND",
+        "result": { "bookingStatus": "CONFIRMED", "reference": "CC-DEMO-001", … }, "receiptIds": ["rcpt_…", "rcpt_…"] }
+
+POST /api/v1/capabilities/cap_0001/revoke
+→ 200 { "capability": { …, "status": "REVOKED" }, "chain": { "provider": "mock", "status": "REVOKED",
+        "registrationTxHash": "0x…", "revocationTxHash": "0x…" }, "childCapabilityIds": ["cap_0002"] }
+
+GET /api/v1/capabilities/cap_0002      → same shape; status is EFFECTIVE (REVOKED/EXPIRED if any ancestor is)
+
+GET /api/v1/audit?mandateId=mdt_0001
+→ 200 { "mandateId": "mdt_0001",
+        "entries":   [ { "receipt": DisclosureReceipt, "allowed": bool, "reason": "…", "kind": "context_request" | "tool_invocation" } ],
+        "delegations": [ Delegation ],
+        "lifecycle": [ { "eventId", "type": "MANDATE_CREATED" | "DELEGATION_CREATED" | "DELEGATION_REJECTED" | "CAPABILITY_REVOKED",
+                         "capabilityId", "agentId", "reasonCode"?, "requestHash"?, "chainTxHash"?, "timestamp" } ] }
+
+POST /api/v1/agent/runs
+{ "mandateId": "mdt_0001", "scenario"?: "golden" | "retry", "planner"?: "scripted" | "llm",
+  "injection"?: "deals_page" | "hotel_description" | "tool_response" | "booking_page" }
+→ 200 { "status": "BOOKED" | "HALTED_BY_POLICY" | "NO_BOOKING" | "PLANNER_ERROR",
+        "planner": "scripted" | "llm" | "scripted-fallback", "summary": "…", "booking"?: {…, "reference"},
+        "haltReasonCode"?: "CAPABILITY_REVOKED", "childCapabilityId"?: "cap_0002",
+        "trace": [ LLM-visible entries: task | note | external_content | tool_call {tool, input, output} ] }
+   planner "llm" → 503 LLM_UNAVAILABLE unless LLM_PLANNER=anthropic. Runs use the mandate's root session server-side.
+
+GET /api/v1/health → { "ok": true, "provider": "mock" | "monad", "llmPlanner": "available" | "unavailable" }
+```
+
+**Resource / operation pairs** (`operation` field):
+
+```text
+passport.raw, calendar.raw, salary.raw, payment.raw   read             always DENY
+passport.validity                                     valid_for_trip   {destination, departureDate, returnDate}   DERIVE, max 5 distinct queries
+calendar.availability                                 available_window {from, to, minHours?}  (≤ 14 days)          DERIVE, max 10 distinct queries
+travel.hotel_preferences                              select           {fields?}  roomType | bedType | areaPreference
+profile.legal_name, payment.handle                    issue_handle     audience "demo-booking-connector"            TOOL_BOUND
+```
+
+Scenes 4/8 "calendar.available_window" = resource `calendar.availability` + operation `available_window`.
+
+**Reason codes** (§7, plus `DERIVATION_QUOTA_EXCEEDED`). Rules worth rendering:
+raw resource in an in-scope family (passport, calendar, payment) → `RAW_DISCLOSURE_FORBIDDEN`;
+family not in scope at all (salary) → `OUT_OF_SCOPE`. Malformed or off-task parameters
+(e.g. passport validity for a destination other than the mandate's), unapproved SELECT
+fields, and charges over budget → `OUT_OF_SCOPE`. Revoking a parent revokes its whole
+subtree; a child can never exercise anything an ancestor does not grant.
+
+**Golden demo order** (what `demo:golden-flow` and `POST /agent/runs` exercise):
+authorize → passport.raw DENY → passport.validity DERIVE → calendar.raw DENY →
+calendar.availability DERIVE → salary.raw DENY (injected page) → delegate to hotel-agent
+(passport delegation 403) → hotel-agent availability + preferences → TOOL_BOUND handles →
+booking CONFIRMED → revoke → retry DENY `CAPABILITY_REVOKED`.
+
+**Mock Monad behaviour.** Until Person 1's SDK lands, `CHAIN_PROVIDER=mock` keeps
+capability status, policy hash, expiry, delegation links and receipt anchors in memory
+with deterministic `0x…` tx hashes (no explorer links yet). The broker re-reads trust-layer
+state on every request, so a revocation made directly on the chain is enforced the same way.
+
+**Receipts.** `requestHash` = SHA-256 of the canonical request (recomputable by anyone
+holding it). `resultHash` = HMAC-SHA256 with `RECEIPT_HMAC_KEY` — a keyed commitment for
+sensitive low-entropy derived outputs; only a key holder can verify it, it is not publicly
+recomputable. Denials have no `resultHash`. Receipts never contain results, parameters or handles.
+
+**Person 1 boundary.** The broker talks to the chain only via `CapabilityStateProvider`
+(`services/broker/src/chain/`). The SDK receives canonical string IDs; recommended bytes32
+encoding is `toBytes32Id(id) = keccak256(UTF-8(id))`. Prove a provider with
+`runProviderConformance` in `tests/broker/providerConformance.ts`. Receipt `decisionCode`:
+DENY 0, DERIVE 1, SELECT 2, TOOL_BOUND 3.
 
 ## 10. Monad Contract Responsibilities
 

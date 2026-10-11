@@ -14,7 +14,8 @@
     "demo:golden-flow": "tsx services/broker/scripts/demo.ts golden-flow",
     "test": "vitest run",
     "test:broker": "vitest run tests/broker",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "bench:broker": "tsx services/broker/scripts/bench.ts"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

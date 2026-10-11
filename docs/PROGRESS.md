@@ -128,12 +128,12 @@ Keep this file short and current.
 ## M6 — Demo Stabilization
 
 ```text
-[ ] full demo works after clean reset
-[x] raw passport absent from LLM logs   (asserted in tests/broker)
+[~] full demo works after clean reset   broker: npm run demo:reset && npm run demo:golden-flow (repeatable, real HTTP); UI pending
+[x] raw passport absent from LLM logs   (asserted in tests/broker, incl. everything sent to the LLM provider)
 [x] payment token absent from LLM logs  (asserted in tests/broker)
-[ ] no private values on-chain
-[~] critical tests pass          P2: 99/99 (npm test); P1/P3 pending
-[~] demo reset command works     broker side: POST /api/v1/demo/reset
+[~] no private values on-chain          anchored payloads asserted id/hash-only (mock); re-check on Monad
+[~] critical tests pass                 P2: 173/173 (npm test) + typecheck clean; P1/P3 pending
+[x] demo reset command works            npm run demo:reset / demo:seed (DEMO_MODE=true)
 [ ] explorer links work
 [ ] failure reasons are human-readable
 ```
@@ -146,7 +146,7 @@ Keep this file short and current.
 [ ] demo video
 [ ] deployed app
 [ ] clean repo
-[ ] .env.example
+[x] .env.example                    (broker + LLM planner vars)
 [ ] setup tested by another teammate
 [ ] final pitch
 [ ] submission form
@@ -158,7 +158,9 @@ Keep this file short and current.
 |---|---|---|---|---|
 | B-01 | P2 | Real Monad provider not wired | P1 `@contextcaps/contract-sdk` + exact input/output types (§12) | Open — mock provider in use |
 | B-02 | P1/P3 | Who signs registerCapability / revokeCapability on Monad (broker relayer key vs user wallet)? Broker supports both: it re-reads chain state on every request | Team decision | Open |
-| B-03 | P1 | Broker IDs are strings (`cap_…`, `rcpt_…`); policy/request hashes are 0x sha256 (bytes32). SDK must map string IDs → bytes32 | P1 | Open |
+| B-03 | P1 | Broker IDs are strings (`cap_…`, `rcpt_…`); hashes are 0x 32-byte hex. SDK maps string IDs → bytes32; reference `toBytes32Id` = keccak256(UTF-8(id)) provided | P1 | Proposed — awaiting P1 ack |
+| B-04 | P1/P3 | Principal endpoints (`/mandates`, `/revoke`) are unauthenticated in MVP; agent endpoints are session-bound. Wallet-signature auth for principals is future work | Team decision | Open (known limitation) |
+| B-05 | P2 | LLM planner not exercised against the live API in this environment (no credentials); request shape unit-tested, fake-provider tests L01–L06 pass | ANTHROPIC_API_KEY + LLM_PLANNER=anthropic | Open — run one live smoke before demo |
 
 ## Shared Decisions
 
@@ -171,12 +173,50 @@ Keep this file short and current.
 | 2026-10-12 | Raw resource in an in-scope family → RAW_DISCLOSURE_FORBIDDEN; otherwise OUT_OF_SCOPE (01 §9.1) | P2/P3 |
 | 2026-10-12 | `calendar.availability` + operation `available_window` (not a separate resource) | P2/P3 |
 | 2026-10-12 | Child purpose must equal parent purpose; parent revocation cascades to children | All |
+| 2026-10-12 | Agent identity comes from broker-issued sessions (`x-contextcaps-session`), never from request bodies | P2/P3 |
+| 2026-10-12 | New reason code `DERIVATION_QUOTA_EXCEEDED` (passport.validity 5, calendar.availability 10 distinct queries / capability) | P2/P3 |
+| 2026-10-12 | Effective authority = intersection over the capability lineage (checked on every request) | All |
+| 2026-10-12 | Delegation decisions are `LifecycleEvent`s with `requestHash` (DisclosureMode has no delegation value) | P2/P3 |
 
 ## Integration Notes
 
 Add only changes another owner must react to.
 
-- **P2 → P3:** Broker API payload types are in `packages/shared-types/src/broker-api.ts`; operation names + param shapes in 01 §9.1. `POST /api/v1/agent/runs` returns the full LLM-visible trace for the activity UI; `scenario:"retry"` drives Scene 8.
+- **P2 → P3 (BREAKING vs first pass):** agent endpoints (`/context/request`, `/delegations`, `/tools/:id/invoke`) now require the `x-contextcaps-session` header. Use `session` from `POST /mandates` and `childSession` from `POST /delegations`. Identity fields in bodies are optional; mismatches are denied. Missing/unknown session → 401 `INVALID_SESSION`. Full handoff with examples: 01 §9.1.
+- **P2 → P3:** Broker API payload types are in `packages/shared-types/src/broker-api.ts`. `POST /api/v1/agent/runs` returns the full LLM-visible trace for the activity UI; `scenario:"retry"` drives Scene 8; `planner:"llm"` (when enabled) and `injection:"hotel_description" | "tool_response" | "booking_page"` are optional.
+- **P2 → P3:** render new reason code `DERIVATION_QUOTA_EXCEEDED`; `LifecycleEvent` gained `eventId`, `requestHash`, `delegationId`.
 - **P2 → P3:** TOOL_BOUND `result` is `{ handle, resource, audience, expiresAt }` — the handle is opaque, safe to display truncated.
-- **P2 → P1:** Broker calls the SDK only via `services/broker/src/chain/contractSdkProvider.ts` (`ContractClientLike` = assumed §12 shapes). Receipt `decisionCode`: DENY 0, DERIVE 1, SELECT 2, TOOL_BOUND 3. `resultHash` is an HMAC commitment (zero hash for denials).
+- **P2 → P1:** Broker calls the SDK only via `services/broker/src/chain/contractSdkProvider.ts` (`ContractClientLike` = assumed §12 shapes; the header lists exactly what the SDK must do). Prove your provider with `runProviderConformance` (`tests/broker/providerConformance.ts`). Receipt `decisionCode`: DENY 0, DERIVE 1, SELECT 2, TOOL_BOUND 3. `resultHash` is a keyed HMAC commitment (zero hash for denials).
 - **P2 → All:** `packages/shared-types` created by P2 from 01 §3–§8 verbatim, plus additive `broker-api.ts`. Seed fixture adds `travelPreferences.hotel.loyaltyMemberId` (never disclosed) to make SELECT observable.
+
+## Person 2 Readiness (2026-10-12)
+
+```text
+[x] original 99-test baseline still passes        (now 173 tests, all green)
+[x] typecheck clean                               (no lint configured)
+[x] agent identity cannot be spoofed via request body   (sessions; A01–A05)
+[x] LLM planner behind BrokerPort                 (fake-provider L01–L06; live API not yet run — B-05)
+[x] scripted planner still default + fallback     (L06)
+[x] raw passport / raw calendar never reach LLM   (provider-request leak tests)
+[x] salary request blocked                        (+ 3 realistic injection variants)
+[x] tool-bound secret never reaches LLM           (TBA08: logs, receipts, trace, API, anchors)
+[x] handle replay / wrong agent / wrong tool / other mandate fail   (TBA01–TBA07)
+[x] derived-query quota                           (Q01–Q05)
+[x] child capability narrower than parent; ancestor revoke/expiry blocks descendants   (D01–D10)
+[x] receipts contain no private values; keyed commitments documented
+[x] demo reset + golden-flow commands             (verified against a real broker process)
+[x] API ready for Person 3                        (01 §9.1)
+[x] CapabilityStateProvider ready for Person 1    (conformance suite + toBytes32Id)
+```
+
+Local latency baseline (`npm run bench:broker`; in-process, mock trust layer, one laptop — informational only):
+
+```text
+policy evaluation (pure)                   p50 0.015 ms   p95 0.037 ms
+broker DENY (passport.raw)                 p50 0.024 ms   p95 0.054 ms
+broker DERIVE passport.validity            p50 0.052 ms   p95 0.130 ms
+broker SELECT hotel preferences            p50 0.035 ms   p95 0.078 ms
+broker TOOL_BOUND issue handle             p50 0.031 ms   p95 0.063 ms
+```
+
+Real Monad state reads will add RPC latency to every request; these numbers say nothing about that.
