@@ -8,6 +8,8 @@ import type { CapabilityStateProvider } from "./chain/stateProvider";
 import type { BrokerConfig } from "./config";
 import { createLogger, type SafeLogger } from "./logger";
 import { randomIds, systemClock, type Clock, type IdGenerator } from "./runtime";
+import { createContractClientFromEnv } from "@contextcaps/contract-sdk";
+import { ContractSdkCapabilityStateProvider } from "./chain/contractSdkProvider";
 import { MockBookingConnector } from "./tools/bookingConnector";
 
 export interface AppOverrides {
@@ -40,10 +42,10 @@ export async function createBrokerApp(
   let provider = overrides.provider;
   if (!provider) {
     if (config.chainProvider === "monad") {
-      // Wire Person 1's SDK here: new ContractSdkCapabilityStateProvider(createContractClient(...)).
-      throw new Error("CHAIN_PROVIDER=monad requires @contextcaps/contract-sdk (not yet available).");
+      provider = new ContractSdkCapabilityStateProvider(await createContractClientFromEnv());
+    } else {
+      provider = new MockCapabilityStateProvider(clock);
     }
-    provider = new MockCapabilityStateProvider(clock);
   }
 
   const vault = new ContextVault();

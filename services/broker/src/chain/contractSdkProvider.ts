@@ -25,10 +25,8 @@ import { DECISION_CODES, type CapabilityStateProvider, type OnchainCapabilitySta
  *  - decisionCode: DENY 0, DERIVE 1, SELECT 2, TOOL_BOUND 3.
  *  - Verify with tests/broker/providerConformance.ts (runProviderConformance).
  *
- * The input/output shapes below are ASSUMED — §12 does not define
- * RegisterCapabilityInput / TxResult / OnchainCapability yet. When
- * `@contextcaps/contract-sdk` ships, replace this interface with its types
- * and adjust the mapping in this file only.
+ * Implemented by @contextcaps/contract-sdk. This structural interface also
+ * allows deterministic test doubles without coupling the broker to ethers.
  */
 export interface ContractClientLike {
   registerCapability(input: {

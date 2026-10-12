@@ -16,15 +16,23 @@
     "test": "vitest run",
     "test:broker": "vitest run tests/broker",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "bench:broker": "tsx services/broker/scripts/bench.ts"
+    "bench:broker": "tsx services/broker/scripts/bench.ts",
+    "contracts:compile": "tsx packages/contracts/scripts/compile.ts",
+    "contracts:deploy": "node --env-file-if-exists=.env --import tsx packages/contracts/scripts/deploy.ts",
+    "test:contracts": "vitest run tests/contracts"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
+    "ganache": "^7.9.2",
+    "solc": "0.8.28",
     "tsx": "^4.20.0",
     "typescript": "~5.9.3",
     "vitest": "^3.2.7"
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "ethers": "^6.17.0"
   }
 }
