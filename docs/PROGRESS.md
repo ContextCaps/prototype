@@ -50,10 +50,10 @@ Keep this file short and current.
 ### Person 3
 
 ```text
-[ ] P3-01 Web app skeleton
-[ ] P3-02 authorization screen
-[ ] P3-03 activity UI
-[ ] P3-04 mock API integration
+[x] P3-01 Web app skeleton          apps/web (Vite + React), npm run dev:web → :5173
+[x] P3-02 authorization screen
+[x] P3-03 activity UI                renders POST /agent/runs trace
+[x] P3-04 API integration            real broker (CHAIN_PROVIDER=mock); no frontend-only mocks
 ```
 
 **Exit:** all three domains run independently.
@@ -82,9 +82,9 @@ Keep this file short and current.
 ### Person 3
 
 ```text
-[ ] BLOCKED state
-[ ] DERIVED state
-[ ] capability state
+[x] BLOCKED state
+[x] DERIVED state
+[x] capability state
 ```
 
 **Exit:** raw passport blocked and derived validity succeeds end-to-end.
@@ -92,11 +92,11 @@ Keep this file short and current.
 ## M3 — First Real Integration
 
 ```text
-[ ] Web → Broker
+[x] Web → Broker                 verified against mock trust layer; Monad pending
 [x] Broker → Contract SDK      wired; conformance + golden flow on real local EVM
 [x] SDK → Monad               deployed registry; live root/child reads verified on chain 10143
-[ ] Broker result → Web
-[ ] Revoke from Web
+[x] Broker result → Web
+[~] Revoke from Web              works on mock; not yet run against Monad
 [x] Revoke reflected in Broker  live Monad golden-flow: root and hotel-agent retries denied
 ```
 
@@ -121,7 +121,7 @@ Keep this file short and current.
 [x] malicious instruction seeded    services/agent/src/environment.ts
 [x] agent requests salary
 [x] Broker denies OUT_OF_SCOPE
-[ ] UI clearly shows trust moment
+[~] UI clearly shows trust moment   salary OUT_OF_SCOPE row after untrusted page; polish pending
 [x] receipt generated
 ```
 
@@ -157,10 +157,10 @@ Keep this file short and current.
 | ID | Owner | Blocker | Depends On | Status |
 |---|---|---|---|---|
 | B-01 | P2 | Real Monad provider not wired | P1 SDK | Closed — SDK wired and tested on local EVM |
-| B-02 | P1/P3 | Who signs registerCapability / revokeCapability on Monad (broker relayer key vs user wallet)? Broker supports both: it re-reads chain state on every request | Team decision | Open |
+| B-02 | P1/P3 | Who signs registerCapability / revokeCapability on Monad (broker relayer key vs user wallet)? | Team decision | Closed for demo — `PRINCIPAL_SIGNING=wallet`: user's MetaMask signs root grant + revocation; broker key is operator (children, delegation links, receipts). Server signing still default for scripts/tests |
 | B-03 | P1 | String IDs → bytes32 mapping | P1 | Closed — SDK uses keccak256(UTF-8); canonical parent IDs recoverable after restart |
 | B-04 | P1/P3 | Principal endpoints (`/mandates`, `/revoke`) are unauthenticated in MVP; agent endpoints are session-bound. Wallet-signature auth for principals is future work | Team decision | Open (known limitation) |
-| B-05 | P2 | GPT planner needs one live smoke after the OpenAI migration; request shape and fake-provider tests L01–L06 pass | OPENAI_API_KEY + LLM_PLANNER=openai | Open — run one live smoke before demo |
+| B-05 | P2 | LLM planner never run live | OPENAI_API_KEY + LLM_PLANNER=openai | Closed 2026-10-12 — live gpt-5.4-mini run BOOKED in ~10 s, planner `llm`, 0 seeded values in trace. Fixed: Chat Completions rejects `reasoning_effort` with function tools for gpt-5.4-mini, so it is now sent only when LLM_EFFORT is set |
 
 ## Shared Decisions
 
@@ -184,6 +184,8 @@ Add only changes another owner must react to.
 
 - **P1 → P2/P3:** Contract, SDK and broker wiring implemented; handoff in `packages/contracts/README.md` and `packages/contract-sdk/README.md`. Monad Testnet registry deployed at `0x9d1eB4688D770202E9753eCD6263f2d60f189728`; importable manifest: `packages/contracts/deployments/monad-testnet.json`. User's live golden-flow completed (13 receipts, 4 lifecycle events), broker health reports `provider: monad`, and SDK reads directly from public RPC confirm root `cap_c832caf31ea26bed` and child `cap_739e67414f479215` are REVOKED. Demo lifecycle writes use a server-side principal signer; the submitted principal must be its full wallet address. Direct user signing is supported by SDK but UI/API wallet authentication remains future work (B-02/B-04). Monad uses random IDs because on-chain IDs cannot be reset/reused. Expiry rounds down to whole seconds. Canonical capability IDs are public opaque IDs; never embed private data in them.
 
+- **P3 → All (wallet signing, BREAKING for Monad deployments):** `CapabilityRegistry` now lets the operator (`receiptWriter`) register a child under an active parent of the same principal and confirm its delegation; roots, revoke and complete stay principal-only. Redeployed on Monad Testnet at `0xE366af2032Bc4e581F533806640185a5b0eA3FB2` (operator `0x8332d4eD21e9ceaEb887Ee2e8Ea2F08D26548534`); the old `0x9d1e…9728` registry cannot run wallet mode. Broker: `PRINCIPAL_SIGNING=wallet` (requires monad) → `POST /mandates` returns 202 `AWAITING_SIGNATURE` + `signRequest`, then `POST /mandates/:id/confirm {txHash}` activates only after chain state matches; revoke via `POST /capabilities/:id/revoke/prepare` then `POST /capabilities/:id/revoke {txHash}`. `/health` reports `principalSigning`. Tests W01–W08 + EVM wallet flow. See 01 §9.1.
+- **P3 → All:** `apps/web` added as an npm workspace (root `package.json`); run `npm install` after pulling. The web app calls only principal endpoints plus `POST /agent/runs`, and drops the root `session` from `POST /mandates`. Dev uses a Vite proxy (`/api` → `:8787`); deployed builds set `VITE_API_BASE` and need the broker's `CORS_ORIGINS` to include the app origin. On Monad set `VITE_PRINCIPAL` to the broker signer's address. See `apps/web/.env.example`.
 - **P2 → P3 (BREAKING vs first pass):** agent endpoints (`/context/request`, `/delegations`, `/tools/:id/invoke`) now require the `x-contextcaps-session` header. Use `session` from `POST /mandates` and `childSession` from `POST /delegations`. Identity fields in bodies are optional; mismatches are denied. Missing/unknown session → 401 `INVALID_SESSION`. Full handoff with examples: 01 §9.1.
 - **P2 → P3:** Broker API payload types are in `packages/shared-types/src/broker-api.ts`. `POST /api/v1/agent/runs` returns the full LLM-visible trace for the activity UI; `scenario:"retry"` drives Scene 8; `planner:"llm"` (when enabled) and `injection:"hotel_description" | "tool_response" | "booking_page"` are optional.
 - **P2 → P3:** render new reason code `DERIVATION_QUOTA_EXCEEDED`; `LifecycleEvent` gained `eventId`, `requestHash`, `delegationId`.

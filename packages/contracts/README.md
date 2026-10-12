@@ -71,7 +71,14 @@ Revoke grants before resetting if needed. Broker storage remains in-memory.
 
 ## Authorization and on-chain guarantees
 
-- Register, revoke, complete, and confirm delegation require `msg.sender == principal`.
+- Root registration, revoke and complete require `msg.sender == principal`.
+- The immutable `receiptWriter` is also the broker **operator**: it may register a *child*
+  capability under an active parent owned by the same principal (never a root, never longer
+  than the parent) and confirm that delegation. This lets the principal sign only the root
+  grant and revocation from their own wallet (`PRINCIPAL_SIGNING=wallet`) while the broker
+  handles mid-run delegation. Revoking the root still revokes every child.
+- Monad Testnet (wallet signing): registry `0xE366af2032Bc4e581F533806640185a5b0eA3FB2`,
+  operator `0x8332d4eD21e9ceaEb887Ee2e8Ea2F08D26548534`.
 - There is no owner/admin bypass for principal revocation.
 - Immutable parent links require a live parent, the same principal, non-increasing
   expiry and at most eight on-chain delegation levels. Cycles are impossible:

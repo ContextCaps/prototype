@@ -74,3 +74,10 @@ export const agentRunSchema = z.object({
 });
 
 export const auditQuerySchema = z.object({ mandateId: id });
+
+const txHash = z.string().regex(/^0x[0-9a-fA-F]{64}$/, "must be a 32-byte hex transaction hash");
+
+export const confirmWalletTxSchema = z.object({ txHash });
+
+/** Server mode: empty body. Wallet mode: the hash of the principal's revocation tx. */
+export const revokeSchema = z.object({ txHash: txHash.optional() }).optional();

@@ -401,6 +401,29 @@ npm test / npm run typecheck / npm run bench:broker
 In `DEMO_MODE` ids are sequential after every reset (`mdt_0001`, `cap_0001`,
 `cap_0002` for the hotel child). Session tokens and tool handles are always random.
 
+**Wallet signing (`PRINCIPAL_SIGNING=wallet`, P3 — additive)**
+
+The principal's own wallet signs the root grant and revocation; the broker key is only the
+registry operator (child registration under an active user-signed root, delegation links, receipts).
+
+```http
+POST /api/v1/mandates                       (same body)
+→ 202 { "status": "AWAITING_SIGNATURE", "mandate": {…}, "capability": {…},
+        "signRequest": { "chainId": 10143, "to": "0x<registry>", "data": "0x…" } }      (no session)
+  … wallet sends signRequest …
+POST /api/v1/mandates/:mandateId/confirm    { "txHash": "0x…" }
+→ 201 CreateMandateResponse   once chain state matches (ACTIVE, same policyHash and principal, no parent)
+→ 409 not registered yet / mismatch;  404 unknown or already confirmed
+
+POST /api/v1/capabilities/:id/revoke/prepare → 200 { "signRequest": {…} }
+  … wallet sends signRequest …
+POST /api/v1/capabilities/:id/revoke        { "txHash": "0x…" }
+→ 200 CapabilityStateResponse once the chain reports REVOKED;  400 without txHash;  409 not revoked yet
+```
+
+The broker trusts chain state, never the submitted hash (it is stored for display only).
+In wallet mode the broker never registers roots or revokes. Server signing remains the default.
+
 **Two kinds of caller**
 
 | Caller | Endpoints | Identity |

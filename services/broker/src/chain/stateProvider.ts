@@ -5,6 +5,7 @@ import type {
   ContextCapability,
   Delegation,
   DisclosureReceipt,
+  WalletSignRequest,
 } from "@contextcaps/shared-types";
 
 export interface OnchainCapabilityState {
@@ -13,6 +14,8 @@ export interface OnchainCapabilityState {
   policyHash: string;
   parentCapabilityId?: CapabilityId;
   expiresAt: string;
+  /** Principal address recorded on-chain (when the trust layer exposes it). */
+  principal?: string;
 }
 
 /**
@@ -32,6 +35,10 @@ export interface CapabilityStateProvider {
   /** Returns undefined when the capability is not registered. Throws when state cannot be read. */
   getCapabilityState(capabilityId: CapabilityId): Promise<OnchainCapabilityState | undefined>;
   anchorDisclosureReceipt(receipt: DisclosureReceipt): Promise<ChainTx>;
+  /** Unsigned root registration for the principal's own wallet (PRINCIPAL_SIGNING=wallet). */
+  prepareRegistration(capability: ContextCapability): WalletSignRequest;
+  /** Unsigned revocation for the principal's own wallet (PRINCIPAL_SIGNING=wallet). */
+  prepareRevocation(capabilityId: CapabilityId): WalletSignRequest;
 }
 
 /** Decision codes for DisclosureReceiptAnchored.decisionCode (uint8). */

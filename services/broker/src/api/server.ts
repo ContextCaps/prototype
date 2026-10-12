@@ -13,7 +13,9 @@ import type { Clock } from "../runtime";
 import {
   agentRunSchema,
   auditQuerySchema,
+  confirmWalletTxSchema,
   createMandateSchema,
+  revokeSchema,
   sessionContextRequestSchema,
   sessionDelegationSchema,
   sessionToolInvocationSchema,
@@ -80,6 +82,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   app.get("/api/v1/health", async () => ({
     ok: true,
     provider: broker.providerName,
+    principalSigning: broker.principalSigning,
     llmPlanner: options.llmRunner ? "available" : "unavailable",
   }));
 
@@ -88,12 +91,30 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   app.post("/api/v1/mandates", async (request, reply) => {
     const body = parse(createMandateSchema, request.body, reply);
     if (!body) return reply;
+    // Wallet mode: nothing is active until the principal's own wallet registers it (see /confirm).
+    if (broker.principalSigning === "wallet") return reply.code(202).send(broker.prepareMandate(body as CreateMandateRequest));
     const created = await broker.createMandate(body as CreateMandateRequest);
     return reply.code(201).send(created);
   });
 
+  app.post<{ Params: { id: string } }>("/api/v1/mandates/:id/confirm", async (request, reply) => {
+    const body = parse(confirmWalletTxSchema, request.body, reply);
+    if (!body) return reply;
+    const created = await broker.confirmMandate(request.params.id, body.txHash);
+    if (!created) return reply.code(404).send({ error: "NOT_FOUND", message: "No mandate is awaiting a signature with that id." });
+    return reply.code(201).send(created);
+  });
+
+  app.post<{ Params: { id: string } }>("/api/v1/capabilities/:id/revoke/prepare", async (request, reply) => {
+    const prepared = broker.prepareRevocation(request.params.id);
+    if (!prepared) return reply.code(404).send({ error: "NOT_FOUND", message: "Unknown capability." });
+    return prepared;
+  });
+
   app.post<{ Params: { id: string } }>("/api/v1/capabilities/:id/revoke", async (request, reply) => {
-    const state = await broker.revokeCapability(request.params.id);
+    const body = parse(revokeSchema, request.body, reply);
+    if (reply.sent) return reply;
+    const state = await broker.revokeCapability(request.params.id, body?.txHash);
     if (!state) return reply.code(404).send({ error: "NOT_FOUND", message: "Unknown capability." });
     return state;
   });
