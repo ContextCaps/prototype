@@ -10,7 +10,6 @@
   "scripts": {
     "start:broker": "tsx services/broker/src/main.ts",
     "dev:broker": "tsx watch services/broker/src/main.ts",
-    "dev:landing": "node apps/landing/serve.mjs",
     "dev:web": "npm run dev -w @contextcaps/web",
     "build:web": "npm run build -w @contextcaps/web",
     "typecheck:web": "npm run typecheck -w @contextcaps/web",
