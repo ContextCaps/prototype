@@ -5,6 +5,7 @@ import type {
   ContextCapability,
   Delegation,
   DisclosureReceipt,
+  WalletSignRequest,
 } from "@contextcaps/shared-types";
 import { DECISION_CODES, type CapabilityStateProvider, type OnchainCapabilityState } from "./stateProvider";
 
@@ -40,6 +41,7 @@ export interface ContractClientLike {
   revokeCapability(capabilityId: string): Promise<{ txHash: string; explorerUrl?: string }>;
   getCapability(capabilityId: string): Promise<{
     capabilityId: string;
+    principal?: string;
     status: CapabilityStatus;
     policyHash: string;
     parentCapabilityId?: string;
@@ -58,6 +60,16 @@ export interface ContractClientLike {
     resultHash: string;
     decisionCode: number;
   }): Promise<{ txHash: string; explorerUrl?: string }>;
+  /** Calldata for the principal's own wallet (wallet signing mode). */
+  encodeRegisterCapability(input: {
+    capabilityId: string;
+    principal: string;
+    agentId: string;
+    policyHash: string;
+    parentCapabilityId?: string;
+    expiresAt: string;
+  }): { to: string; data: string };
+  encodeRevokeCapability(capabilityId: string): { to: string; data: string };
 }
 
 const ZERO_HASH = "0x" + "0".repeat(64);
@@ -65,9 +77,12 @@ const ZERO_HASH = "0x" + "0".repeat(64);
 export class ContractSdkCapabilityStateProvider implements CapabilityStateProvider {
   readonly name = "monad";
   readonly #client: ContractClientLike;
+  readonly #chainId: number;
 
-  constructor(client: ContractClientLike) {
+  /** `chainId` is stamped on wallet sign requests (Monad Testnet unless a test chain says otherwise). */
+  constructor(client: ContractClientLike, options: { chainId?: number } = {}) {
     this.#client = client;
+    this.#chainId = options.chainId ?? 10143;
   }
 
   async registerCapability(capability: ContextCapability): Promise<ChainTx> {
@@ -103,7 +118,24 @@ export class ContractSdkCapabilityStateProvider implements CapabilityStateProvid
       policyHash: onchain.policyHash,
       parentCapabilityId: onchain.parentCapabilityId,
       expiresAt: onchain.expiresAt,
+      principal: onchain.principal,
     };
+  }
+
+  prepareRegistration(capability: ContextCapability): WalletSignRequest {
+    const call = this.#client.encodeRegisterCapability({
+      capabilityId: capability.capabilityId,
+      principal: capability.principal,
+      agentId: capability.agentId,
+      policyHash: capability.policyHash,
+      parentCapabilityId: capability.parentCapabilityId,
+      expiresAt: capability.expiresAt,
+    });
+    return { chainId: this.#chainId, ...call };
+  }
+
+  prepareRevocation(capabilityId: CapabilityId): WalletSignRequest {
+    return { chainId: this.#chainId, ...this.#client.encodeRevokeCapability(capabilityId) };
   }
 
   async anchorDisclosureReceipt(receipt: DisclosureReceipt): Promise<ChainTx> {

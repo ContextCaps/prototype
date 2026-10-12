@@ -21,6 +21,9 @@ contract CapabilityRegistry {
         bool exists;
     }
     uint8 public constant MAX_DEPTH = 8;
+    /// @notice Broker operator: anchors receipts and may register delegated (child) capabilities
+    /// under an active parent the principal already holds. It can never create a root grant,
+    /// revoke, or complete, so the principal stays the only source of authority.
     address public immutable receiptWriter;
     mapping(bytes32 => Capability) private capabilities;
     // Public, opaque application identifiers only; never user data or task descriptions.
@@ -46,8 +49,10 @@ contract CapabilityRegistry {
         receiptWriter = writer;
     }
 
+    /// @notice Roots: principal only. Children: principal or the broker operator; either way the
+    /// parent must be active, owned by the same principal, and outlive the child.
     function registerCapability(string calldata canonicalId, address principal, bytes32 agentId, bytes32 policyHash, bytes32 parentId, uint64 expiresAt) external {
-        if (msg.sender != principal) revert Unauthorized();
+        if (msg.sender != principal && !(msg.sender == receiptWriter && parentId != bytes32(0))) revert Unauthorized();
         if (bytes(canonicalId).length == 0 || bytes(canonicalId).length > 128 || agentId == bytes32(0) || policyHash == bytes32(0) || expiresAt <= block.timestamp) revert InvalidInput();
         bytes32 id = keccak256(bytes(canonicalId));
         if (capabilities[id].principal != address(0)) revert AlreadyExists();
@@ -97,7 +102,7 @@ contract CapabilityRegistry {
     /// @notice Parent link is set immutably during registration; this confirms the broker handoff.
     function registerDelegation(bytes32 parentId, bytes32 childId, bytes32 childAgentId) external {
         Capability storage child = capabilities[childId];
-        if (msg.sender != child.principal) revert Unauthorized();
+        if (msg.sender != child.principal && msg.sender != receiptWriter) revert Unauthorized();
         if (parentId == bytes32(0) || child.parentCapabilityId != parentId || child.agentId != childAgentId) revert InvalidDelegation();
         if (!isActive(childId)) revert InactiveCapability();
         if (delegationRegistered[childId]) revert AlreadyExists();

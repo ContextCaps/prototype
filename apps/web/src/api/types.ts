@@ -20,13 +20,18 @@ export type {
   DisclosureMode,
   DisclosureReceipt,
   LifecycleEvent,
+  PendingMandateResponse,
+  PrepareRevocationResponse,
   TaskMandate,
   ToolBoundHandle,
+  WalletSignRequest,
 } from "@contextcaps/shared-types";
 
 export interface HealthResponse {
   ok: boolean;
   provider: "mock" | "monad";
+  /** "wallet": the user's own wallet signs authorization and revocation. Absent on older brokers. */
+  principalSigning?: "server" | "wallet";
   llmPlanner: "available" | "unavailable";
 }
 

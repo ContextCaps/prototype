@@ -1,5 +1,5 @@
 import { sha256Hex } from "@contextcaps/policy";
-import type { CapabilityId, ChainTx, ContextCapability, Delegation, DisclosureReceipt } from "@contextcaps/shared-types";
+import type { CapabilityId, ChainTx, ContextCapability, Delegation, DisclosureReceipt, WalletSignRequest } from "@contextcaps/shared-types";
 import type { Clock } from "../runtime";
 import { systemClock } from "../runtime";
 import type { CapabilityStateProvider, OnchainCapabilityState } from "./stateProvider";
@@ -31,6 +31,7 @@ export class MockCapabilityStateProvider implements CapabilityStateProvider {
       policyHash: capability.policyHash,
       parentCapabilityId: capability.parentCapabilityId,
       expiresAt: capability.expiresAt,
+      principal: capability.principal,
     });
     return this.#tx("register", capability.capabilityId);
   }
@@ -70,6 +71,15 @@ export class MockCapabilityStateProvider implements CapabilityStateProvider {
       resultHash: receipt.resultHash,
     });
     return this.#tx("anchor", receipt.receiptId);
+  }
+
+  /** Mock "calldata": tests simulate the wallet by calling registerCapability/revokeCapability directly. */
+  prepareRegistration(capability: ContextCapability): WalletSignRequest {
+    return { chainId: 0, to: "mock-registry", data: `registerCapability:${capability.capabilityId}` };
+  }
+
+  prepareRevocation(capabilityId: CapabilityId): WalletSignRequest {
+    return { chainId: 0, to: "mock-registry", data: `revokeCapability:${capabilityId}` };
   }
 
   reset(): void {

@@ -12,6 +12,8 @@ export interface RegisterCapabilityInput {
 export interface RegisterDelegationInput { parentCapabilityId: string; childCapabilityId: string; childAgentId: string }
 export interface DisclosureReceiptAnchor { receiptId: string; capabilityId: string; requestHash: string; resultHash: string; decisionCode: number }
 export interface TxResult { txHash: string; explorerUrl?: string }
+/** An unsigned registry call for the principal's own wallet (e.g. MetaMask) to sign and send. */
+export interface UnsignedRegistryCall { to: string; data: string }
 export interface OnchainCapability {
   capabilityId: string; principal: string; agentIdHash: string; policyHash: string;
   parentCapabilityId?: string; expiresAt: string; status: CapabilityStatus;
@@ -56,12 +58,24 @@ export class ContextCapsContractClient {
     this.pendingWrite = next.then(() => {}, () => {});
     return next;
   }
-  registerCapability(input: RegisterCapabilityInput): Promise<TxResult> {
+  private encode(method: string, args: unknown[]): UnsignedRegistryCall {
+    return { to: String(this.contract.target), data: this.contract.interface.encodeFunctionData(method, args) };
+  }
+  private registerArgs(input: RegisterCapabilityInput): unknown[] {
     toBytes32Id(input.capabilityId);
-    return this.write("registerCapability", [input.capabilityId, getAddress(input.principal), toBytes32Id(input.agentId),
-      hash(input.policyHash), input.parentCapabilityId ? toBytes32Id(input.parentCapabilityId) : ZeroHash, expiry(input.expiresAt)]);
+    return [input.capabilityId, getAddress(input.principal), toBytes32Id(input.agentId),
+      hash(input.policyHash), input.parentCapabilityId ? toBytes32Id(input.parentCapabilityId) : ZeroHash, expiry(input.expiresAt)];
+  }
+  registerCapability(input: RegisterCapabilityInput): Promise<TxResult> {
+    return this.write("registerCapability", this.registerArgs(input));
   }
   revokeCapability(id: string): Promise<TxResult> { return this.write("revokeCapability", [toBytes32Id(id)]); }
+  /** Calldata for the principal's wallet to register a root capability itself. */
+  encodeRegisterCapability(input: RegisterCapabilityInput): UnsignedRegistryCall {
+    return this.encode("registerCapability", this.registerArgs(input));
+  }
+  /** Calldata for the principal's wallet to revoke a capability itself. */
+  encodeRevokeCapability(id: string): UnsignedRegistryCall { return this.encode("revokeCapability", [toBytes32Id(id)]); }
   completeCapability(id: string): Promise<TxResult> { return this.write("completeCapability", [toBytes32Id(id)]); }
   async getCapability(id: string): Promise<OnchainCapability | null> {
     const key = toBytes32Id(id);

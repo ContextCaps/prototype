@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import type { CreateMandateRequest, HealthResponse } from "../api/types";
 import type { Authorization } from "../lib/useDemo";
 import { explorerTxUrl, truncate } from "../lib/format";
+import { hasWallet } from "../lib/wallet";
 import { StatusBadge } from "./DecisionBadge";
 
 const PRINCIPAL = import.meta.env.VITE_PRINCIPAL || "0xA11CE";
@@ -15,20 +16,29 @@ interface Props {
   health: HealthResponse | null;
   auth: Authorization | null;
   busy: boolean;
+  /** Wallet signing: the connected account is the principal and signs on Monad. */
+  walletMode: boolean;
+  account: string | null;
+  connecting: boolean;
+  progress: string | null;
+  onConnect: () => void;
   onAuthorize: (req: CreateMandateRequest) => void;
 }
 
-export function AuthorizeStep({ health, auth, busy, onAuthorize }: Props) {
+export function AuthorizeStep({ health, auth, busy, walletMode, account, connecting, progress, onConnect, onAuthorize }: Props) {
   const [description, setDescription] = useState(GOLDEN_TASK);
   const [destination, setDestination] = useState("Singapore");
   const [budget, setBudget] = useState(700);
 
   const onMonad = health?.provider === "monad";
-  const principalMismatch = onMonad && !/^0x[0-9a-fA-F]{40}$/.test(PRINCIPAL);
+  const principal = walletMode ? account : PRINCIPAL;
+  const principalMismatch = onMonad && !walletMode && !/^0x[0-9a-fA-F]{40}$/.test(PRINCIPAL);
+  const needsWallet = walletMode && !account;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    onAuthorize({ principal: PRINCIPAL, description, constraints: { destination, budgetUsd: budget } });
+    if (!principal) return;
+    onAuthorize({ principal, description, constraints: { destination, budgetUsd: budget } });
   };
 
   const txUrl = explorerTxUrl(health?.provider, auth?.chain.txHash);
@@ -61,12 +71,38 @@ export function AuthorizeStep({ health, auth, busy, onAuthorize }: Props) {
             The broker is on Monad. Set <code>VITE_PRINCIPAL</code> to the broker signer's wallet address.
           </p>
         )}
-        {!auth && (
-          <button className="btn btn-primary" type="submit" disabled={busy || !health}>
-            {busy ? "Authorizing…" : onMonad ? "Authorize on Monad" : "Authorize task"}
-            <i className="ph ph-arrow-right" aria-hidden="true" />
-          </button>
+        {walletMode && (
+          <p className="wallet-line">
+            <i className="ph ph-wallet" aria-hidden="true" />
+            {account ? (
+              <>Signing as <code title={account}>{truncate(account, 6, 4)}</code>. Your wallet authorizes and revokes; the broker never holds your key.</>
+            ) : (
+              <>You sign the grant with your own wallet. The broker never holds your key.</>
+            )}
+          </p>
         )}
+        {!auth &&
+          (needsWallet ? (
+            hasWallet() ? (
+              <button className="btn btn-primary" type="button" onClick={onConnect} disabled={connecting}>
+                <i className="ph ph-wallet" aria-hidden="true" />
+                {connecting ? "Connecting…" : "Connect wallet"}
+              </button>
+            ) : (
+              <p className="callout callout-warn">
+                <i className="ph ph-warning" aria-hidden="true" />
+                Install MetaMask to authorize on Monad.
+              </p>
+            )
+          ) : (
+            <div className="submit-row">
+              <button className="btn btn-primary" type="submit" disabled={busy || !health}>
+                {busy ? "Authorizing…" : onMonad ? "Authorize on Monad" : "Authorize task"}
+                <i className="ph ph-arrow-right" aria-hidden="true" />
+              </button>
+              {busy && progress && <span className="progress">{progress}</span>}
+            </div>
+          ))}
       </form>
 
       <div className="tile tile-preview">

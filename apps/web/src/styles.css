@@ -301,6 +301,60 @@ textarea:disabled,
 .fields li.withheld i { color: var(--deny); }
 .perm-modes { margin-left: auto; font: 500 0.72rem/1 var(--mono); color: var(--indigo-800); text-decoration: none; }
 
+.wallet-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.9rem;
+  color: var(--text-soft);
+}
+.wallet-line i { font-size: 1.2rem; color: var(--violet-600); flex: none; margin-top: 1px; }
+
+.submit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--indigo-800);
+}
+.progress::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--violet-100);
+  border-top-color: var(--violet-600);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.run-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.seg {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 0.72);
+  border: 1px solid var(--border);
+}
+.seg button {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  font: 600 0.88rem/1 var(--font);
+  color: var(--text-soft);
+  cursor: pointer;
+}
+.seg button.is-on { background: var(--indigo-900); color: #fff; }
+.seg button:disabled { cursor: default; }
+
+.planner-note { display: flex; align-items: flex-start; gap: 8px; font-size: 0.9rem; color: var(--text-soft); }
+.planner-note i { font-size: 1.1rem; color: var(--violet-600); margin-top: 2px; }
+.planner-note.is-fallback { color: var(--warn); }
+.planner-note.is-fallback i { color: var(--warn); }
+
 .cap-strip {
   display: flex;
   flex-wrap: wrap;
@@ -461,6 +515,7 @@ textarea:disabled,
 
 /* ----------------------------------------------------------------- revoke */
 
+.revoke-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .revoke-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
 .cap-list { display: grid; gap: 8px; }
 .cap-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-weight: 600; color: var(--ink); }

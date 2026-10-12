@@ -104,6 +104,39 @@ export interface CreateMandateResponse {
   session: AgentSessionGrant;
 }
 
+/**
+ * Wallet signing (PRINCIPAL_SIGNING=wallet): the principal's own wallet signs
+ * root registration and revocation. The broker prepares the unsigned call,
+ * then verifies the result on-chain before acting on it.
+ */
+export interface WalletSignRequest {
+  chainId: number;
+  /** Registry contract address. */
+  to: string;
+  /** ABI-encoded calldata. */
+  data: string;
+}
+
+// POST /api/v1/mandates when PRINCIPAL_SIGNING=wallet → 202 (nothing is active until confirmed)
+export interface PendingMandateResponse {
+  status: "AWAITING_SIGNATURE";
+  mandate: TaskMandate;
+  capability: ContextCapability;
+  signRequest: WalletSignRequest;
+}
+
+// POST /api/v1/mandates/:id/confirm → 201 CreateMandateResponse
+// POST /api/v1/capabilities/:id/revoke (wallet mode) → 200 CapabilityStateResponse
+export interface ConfirmWalletTxRequest {
+  /** Hash of the transaction the principal's wallet sent. The broker trusts chain state, not this hash. */
+  txHash: string;
+}
+
+// POST /api/v1/capabilities/:id/revoke/prepare (wallet mode)
+export interface PrepareRevocationResponse {
+  signRequest: WalletSignRequest;
+}
+
 // POST /api/v1/delegations
 export interface CreateDelegationRequest {
   mandateId: MandateId;

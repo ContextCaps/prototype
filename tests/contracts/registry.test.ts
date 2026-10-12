@@ -72,6 +72,21 @@ describe("CapabilityRegistry + real SDK on local EVM", () => {
     expect((await sdk.getCapability("cap_root"))?.status).toBe("REVOKED");
     expect(await sdk.isCapabilityActive("cap_root")).toBe(false);
   });
+  it("the operator may register children under an active root, but never roots, and cannot revoke", async () => {
+    const asOperator = (id: string, parentCapabilityId?: string, expiresAt = END) =>
+      writerSdk.registerCapability({ capabilityId: id, principal, agentId: "hotel-agent", policyHash: HASH, parentCapabilityId, expiresAt });
+    await expect(asOperator("op_root")).rejects.toThrow();
+    await register();
+    await asOperator("op_child", "cap_root");
+    await writerSdk.registerDelegation({ parentCapabilityId: "cap_root", childCapabilityId: "op_child", childAgentId: "hotel-agent" });
+    expect(await sdk.getCapability("op_child")).toMatchObject({ principal, parentCapabilityId: "cap_root", status: "ACTIVE" });
+    await expect(asOperator("op_long", "cap_root", "2026-10-21T00:00:00Z")).rejects.toThrow();
+    await expect(writerSdk.revokeCapability("op_child")).rejects.toThrow();
+    await expect(strangerSdk.registerCapability({ capabilityId: "x_child", principal, agentId: "hotel-agent", policyHash: HASH, parentCapabilityId: "cap_root", expiresAt: END })).rejects.toThrow();
+    await sdk.revokeCapability("cap_root");
+    expect((await sdk.getCapability("op_child"))?.status).toBe("REVOKED");
+    await expect(asOperator("op_late", "cap_root")).rejects.toThrow();
+  });
   it("expires at the exact boundary and never extends fractional expiry", async () => {
     await register("cap_root", undefined, "2026-10-13T00:00:00.999Z");
     expect((await sdk.getCapability("cap_root"))?.expiresAt).toBe("2026-10-13T00:00:00.000Z");
@@ -177,6 +192,34 @@ describe("CapabilityRegistry + real SDK on local EVM", () => {
       const retry = await runAgentScenario(app.broker, { mandate: created.mandate, session: created.session, clock: () => T0, scenario: "retry" });
       expect(retry).toMatchObject({ status: "HALTED_BY_POLICY", haltReasonCode: "CAPABILITY_REVOKED" });
       expect((await sdk.getCapability(result.childCapabilityId!))?.status).toBe("REVOKED");
+    } finally { await app.server.close(); }
+  }, 30_000);
+  it("wallet signing: the user's wallet registers and revokes, the broker operator runs everything else", async () => {
+    const chainId = Number((await provider.getNetwork()).chainId);
+    const app = await createBrokerApp(
+      { chainProvider: "monad", principalSigning: "wallet", receiptKey: "local-evm-test-key", demoMode: false, corsOrigins: true },
+      { provider: new ContractSdkCapabilityStateProvider(writerSdk, { chainId }), clock: () => T0, logger: silentLogger, confirmation: { attempts: 3, delayMs: 10 } });
+    try {
+      const pending = app.broker.prepareMandate({ principal, description: "Book my Singapore trip next weekend under $700.",
+        constraints: { budgetUsd: 700, destination: "Singapore" } });
+      expect(pending.signRequest).toMatchObject({ chainId, to: address });
+      const userTx = await signer.sendTransaction(pending.signRequest);
+      await userTx.wait();
+      const created = (await app.broker.confirmMandate(pending.mandate.mandateId, userTx.hash))!;
+      expect(created.chain.txHash).toBe(userTx.hash);
+
+      const result = await runAgentScenario(app.broker, { mandate: created.mandate, session: created.session, clock: () => T0 });
+      expect(result.status).toBe("BOOKED");
+      expect(await sdk.getCapability(result.childCapabilityId!)).toMatchObject({ principal, parentCapabilityId: created.capability.capabilityId });
+
+      const revocation = app.broker.prepareRevocation(created.capability.capabilityId)!;
+      await expect(app.broker.revokeCapability(created.capability.capabilityId, userTx.hash)).rejects.toThrow(/not revoked/);
+      const revokeTx = await signer.sendTransaction(revocation.signRequest);
+      await revokeTx.wait();
+      const state = await app.broker.revokeCapability(created.capability.capabilityId, revokeTx.hash);
+      expect(state?.capability.status).toBe("REVOKED");
+      const retry = await runAgentScenario(app.broker, { mandate: created.mandate, session: created.session, clock: () => T0, scenario: "retry" });
+      expect(retry).toMatchObject({ status: "HALTED_BY_POLICY", haltReasonCode: "CAPABILITY_REVOKED" });
     } finally { await app.server.close(); }
   }, 30_000);
 });

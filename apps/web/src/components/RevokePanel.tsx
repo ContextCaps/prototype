@@ -9,11 +9,12 @@ interface Props {
   child: CapabilityStateResponse | null;
   retry: AgentRunResult | null;
   busy: "revoke" | "retry" | null;
+  progress: string | null;
   onRevoke: () => void;
   onRetry: () => void;
 }
 
-export function RevokePanel({ provider, root, child, retry, busy, onRevoke, onRetry }: Props) {
+export function RevokePanel({ provider, root, child, retry, busy, progress, onRevoke, onRetry }: Props) {
   const revoked = root.capability.status === "REVOKED";
   const revocationTx = root.chain.revocationTxHash;
   const txUrl = explorerTxUrl(provider, revocationTx);
@@ -31,6 +32,7 @@ export function RevokePanel({ provider, root, child, retry, busy, onRevoke, onRe
           ))}
         </ul>
         <div className="revoke-actions">
+          {busy === "revoke" && progress && <span className="progress">{progress}</span>}
           {!revoked ? (
             <button type="button" className="btn btn-danger" onClick={onRevoke} disabled={!!busy}>
               <i className="ph ph-hand-palm" aria-hidden="true" />

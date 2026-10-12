@@ -23,6 +23,9 @@ import type {
   CreateMandateRequest,
   CreateMandateResponse,
   Delegation,
+  ChainTx,
+  PendingMandateResponse,
+  PrepareRevocationResponse,
   DisclosureDecision,
   SessionContextRequest,
   SessionDelegationRequest,
@@ -34,7 +37,7 @@ import type {
   ToolInvocationResult,
 } from "@contextcaps/shared-types";
 import { DerivationError, type ContextVault } from "@contextcaps/vault";
-import type { CapabilityStateProvider } from "./chain/stateProvider";
+import type { CapabilityStateProvider, OnchainCapabilityState } from "./chain/stateProvider";
 import { HANDLE_TTL_MS, HandleStore } from "./handles";
 import { resolveContext } from "./lineage";
 import { silentLogger, type SafeLogger } from "./logger";
@@ -55,7 +58,17 @@ export interface BrokerDeps {
   clock?: Clock;
   ids?: IdGenerator;
   logger?: SafeLogger;
+  /**
+   * Who signs root registration and revocation on the trust layer.
+   * "server" (default): the broker's own signer. "wallet": the principal's wallet;
+   * the broker prepares the call and verifies the result on-chain before acting.
+   */
+  principalSigning?: PrincipalSigning;
+  /** Waits between on-chain confirmation reads (wallet mode). Injected by tests. */
+  confirmation?: { attempts: number; delayMs: number };
 }
+
+export type PrincipalSigning = "server" | "wallet";
 
 /** Thrown when a session token is missing or unknown (HTTP 401). No receipt: there is no authenticated identity. */
 export class SessionError extends Error {
@@ -77,6 +90,8 @@ export class BrokerInputError extends Error {
 
 const ZERO_HASH = "0x" + "0".repeat(64);
 const DEFAULT_MANDATE_TTL_MS = 24 * 60 * 60 * 1000;
+const TX_HASH = /^0x[0-9a-fA-F]{64}$/;
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
  * Context Broker — the single enforcement point between agents and private context.
@@ -97,8 +112,14 @@ export class ContextBroker {
   readonly #quota = new DerivationQuota();
   readonly #ledger: ReceiptLedger;
   readonly #tools: ToolGateway;
+  readonly principalSigning: PrincipalSigning;
+  readonly #confirmation: { attempts: number; delayMs: number };
+  /** Wallet mode: mandates prepared but not yet registered on-chain by the principal. */
+  readonly #pending = new Map<string, { mandate: TaskMandate; capability: ContextCapability }>();
 
   constructor(deps: BrokerDeps) {
+    this.principalSigning = deps.principalSigning ?? "server";
+    this.#confirmation = deps.confirmation ?? { attempts: 15, delayMs: 1000 };
     this.#vault = deps.vault;
     this.#provider = deps.provider;
     this.#clock = deps.clock ?? systemClock;
@@ -130,6 +151,54 @@ export class ContextBroker {
   // ---------------------------------------------------------------- mandates
 
   async createMandate(input: CreateMandateRequest): Promise<CreateMandateResponse> {
+    if (this.principalSigning === "wallet") {
+      throw new BrokerInputError("This broker uses wallet signing: prepare the mandate, sign it, then confirm it.", 409);
+    }
+    const { mandate, capability } = this.#buildMandate(input);
+    const chain = await this.#provider.registerCapability(capability);
+    return this.#activateMandate(mandate, capability, chain);
+  }
+
+  /**
+   * Wallet mode, step 1: builds the mandate and root capability and returns the
+   * unsigned registry call for the principal's wallet. Nothing is active yet.
+   */
+  prepareMandate(input: CreateMandateRequest): PendingMandateResponse {
+    const { mandate, capability } = this.#buildMandate(input);
+    let signRequest;
+    try {
+      signRequest = this.#provider.prepareRegistration(capability);
+    } catch {
+      throw new BrokerInputError("principal must be the wallet address that will sign.");
+    }
+    this.#pending.set(mandate.mandateId, { mandate, capability });
+    this.#logger.info("mandate.prepared", { mandateId: mandate.mandateId, capabilityId: capability.capabilityId });
+    return { status: "AWAITING_SIGNATURE", mandate, capability: structuredClone(capability), signRequest };
+  }
+
+  /**
+   * Wallet mode, step 2: activates a prepared mandate once the trust layer shows
+   * the principal registered exactly the prepared capability. The tx hash is
+   * recorded for display; authority comes from chain state, not from the caller.
+   */
+  async confirmMandate(mandateId: string, txHash: string): Promise<CreateMandateResponse | undefined> {
+    const pending = this.#pending.get(mandateId);
+    if (!pending) return undefined;
+    if (!TX_HASH.test(txHash)) throw new BrokerInputError("txHash must be a 32-byte hex transaction hash.");
+    const { capability } = pending;
+    const state = await this.#awaitChainState(capability.capabilityId, (s) => s !== undefined);
+    if (!state) throw new BrokerInputError("The capability is not registered on-chain yet.", 409);
+    const matches =
+      state.status === "ACTIVE" &&
+      state.policyHash.toLowerCase() === capability.policyHash.toLowerCase() &&
+      state.parentCapabilityId === undefined &&
+      (state.principal === undefined || state.principal.toLowerCase() === capability.principal.toLowerCase());
+    if (!matches) throw new BrokerInputError("The on-chain registration does not match the prepared capability.", 409);
+    this.#pending.delete(mandateId);
+    return this.#activateMandate(pending.mandate, capability, { txHash });
+  }
+
+  #buildMandate(input: CreateMandateRequest): { mandate: TaskMandate; capability: ContextCapability } {
     const purpose = input.purpose ?? PURPOSES.TRAVEL_BOOKING;
     const template = getCapabilityTemplate(purpose);
     if (!template) throw new BrokerInputError(`Unknown purpose '${purpose}'.`);
@@ -171,8 +240,11 @@ export class ContextBroker {
       validFrom: mandate.constraints.validFrom,
       expiresAt: mandate.constraints.validUntil,
     });
+    return { mandate, capability };
+  }
 
-    const chain = await this.#provider.registerCapability(capability);
+  #activateMandate(mandate: TaskMandate, capability: ContextCapability, chain: ChainTx): CreateMandateResponse {
+    const now = this.#clock();
     this.store.mandates.set(mandate.mandateId, mandate);
     this.store.capabilities.set(capability.capabilityId, { capability, registrationTxHash: chain.txHash });
     this.store.lifecycle.push({
@@ -457,12 +529,33 @@ export class ContextBroker {
 
   // -------------------------------------------------------------- lifecycle
 
-  async revokeCapability(capabilityId: CapabilityId): Promise<CapabilityStateResponse | undefined> {
+  /** Wallet mode: the unsigned revocation for the principal's wallet. */
+  prepareRevocation(capabilityId: CapabilityId): PrepareRevocationResponse | undefined {
+    if (!this.store.capabilities.has(capabilityId)) return undefined;
+    return { signRequest: this.#provider.prepareRevocation(capabilityId) };
+  }
+
+  /**
+   * Server mode: the broker revokes on the trust layer. Wallet mode: the
+   * principal already sent the revocation; it is recorded only once the chain
+   * reports the capability REVOKED.
+   */
+  async revokeCapability(capabilityId: CapabilityId, walletTxHash?: string): Promise<CapabilityStateResponse | undefined> {
     const record = this.store.capabilities.get(capabilityId);
     if (!record) return undefined;
 
     if (record.capability.status !== "REVOKED") {
-      const tx = await this.#provider.revokeCapability(capabilityId);
+      let tx: ChainTx;
+      if (this.principalSigning === "wallet") {
+        if (!walletTxHash || !TX_HASH.test(walletTxHash)) {
+          throw new BrokerInputError("Wallet signing: send the revocation from the principal's wallet, then pass its txHash.");
+        }
+        const state = await this.#awaitChainState(capabilityId, (s) => s?.status === "REVOKED");
+        if (state?.status !== "REVOKED") throw new BrokerInputError("The capability is not revoked on-chain yet.", 409);
+        tx = { txHash: walletTxHash };
+      } else {
+        tx = await this.#provider.revokeCapability(capabilityId);
+      }
       record.capability.status = "REVOKED";
       record.revocationTxHash = tx.txHash;
       const mandate = this.store.mandates.get(record.capability.mandateId);
@@ -520,10 +613,29 @@ export class ContextBroker {
 
   /** Clears broker state (demo reset). The vault and provider are reset by the caller. */
   reset(): void {
+    this.#pending.clear();
     this.store.reset();
     this.sessions.reset();
     this.#quota.reset();
     this.#handles.reset();
+  }
+
+  /** Re-reads trust-layer state until `done` holds or attempts run out (RPC nodes can lag the wallet's). */
+  async #awaitChainState(
+    capabilityId: CapabilityId,
+    done: (state: OnchainCapabilityState | undefined) => boolean,
+  ): Promise<OnchainCapabilityState | undefined> {
+    let state: OnchainCapabilityState | undefined;
+    for (let attempt = 0; attempt < this.#confirmation.attempts; attempt++) {
+      if (attempt > 0) await sleep(this.#confirmation.delayMs);
+      try {
+        state = await this.#provider.getCapabilityState(capabilityId);
+      } catch {
+        state = undefined;
+      }
+      if (done(state)) return state;
+    }
+    return state;
   }
 
   #finalizeCapability(fields: Omit<ContextCapability, "policyHash" | "status">): ContextCapability {

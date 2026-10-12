@@ -38,6 +38,12 @@ function fakeSdk(clock: () => Date): ContractClientLike {
     async anchorDisclosureReceipt() {
       return tx();
     },
+    encodeRegisterCapability(input) {
+      return { to: "0xregistry", data: `register:${input.capabilityId}` };
+    },
+    encodeRevokeCapability(id) {
+      return { to: "0xregistry", data: `revoke:${id}` };
+    },
   };
 }
 

@@ -6,6 +6,8 @@ import type {
   CreateMandateRequest,
   CreateMandateResponse,
   HealthResponse,
+  PendingMandateResponse,
+  PrepareRevocationResponse,
 } from "./types";
 
 /**
@@ -47,10 +49,16 @@ async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Pr
 
 export const broker = {
   health: () => call<HealthResponse>("GET", "/health"),
-  createMandate: (req: CreateMandateRequest) => call<CreateMandateResponse>("POST", "/mandates", req),
+  /** 201 with a session (server signing) or 202 awaiting the user's wallet signature (wallet signing). */
+  createMandate: (req: CreateMandateRequest) => call<CreateMandateResponse | PendingMandateResponse>("POST", "/mandates", req),
+  confirmMandate: (mandateId: string, txHash: string) =>
+    call<CreateMandateResponse>("POST", `/mandates/${encodeURIComponent(mandateId)}/confirm`, { txHash }),
   runAgent: (req: AgentRunRequest) => call<AgentRunResult>("POST", "/agent/runs", req),
   getCapability: (id: string) => call<CapabilityStateResponse>("GET", `/capabilities/${encodeURIComponent(id)}`),
-  revokeCapability: (id: string) => call<CapabilityStateResponse>("POST", `/capabilities/${encodeURIComponent(id)}/revoke`),
+  prepareRevocation: (id: string) => call<PrepareRevocationResponse>("POST", `/capabilities/${encodeURIComponent(id)}/revoke/prepare`),
+  /** Wallet signing passes the hash of the revocation the user's wallet sent. */
+  revokeCapability: (id: string, txHash?: string) =>
+    call<CapabilityStateResponse>("POST", `/capabilities/${encodeURIComponent(id)}/revoke`, txHash ? { txHash } : undefined),
   audit: (mandateId: string) => call<AuditResponse>("GET", `/audit?mandateId=${encodeURIComponent(mandateId)}`),
   resetDemo: () => call<{ ok: true }>("POST", "/demo/reset", {}),
 };

@@ -36,6 +36,12 @@ function fakeClient() {
       anchors.push({ decisionCode: r.decisionCode, resultHash: r.resultHash });
       return tx();
     },
+    encodeRegisterCapability(input) {
+      return { to: "0xregistry", data: `register:${input.capabilityId}` };
+    },
+    encodeRevokeCapability(id) {
+      return { to: "0xregistry", data: `revoke:${id}` };
+    },
   };
   return { client, calls, anchors };
 }

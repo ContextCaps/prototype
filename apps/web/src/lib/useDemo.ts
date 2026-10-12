@@ -8,15 +8,18 @@ import type {
   CreateMandateResponse,
   HealthResponse,
 } from "../api/types";
+import { connectWallet, sendAndConfirm, watchAccount, type TxStage } from "./wallet";
 
 /** The authorized mandate as the UI keeps it. The root agent's session token is dropped on purpose. */
 export type Authorization = Omit<CreateMandateResponse, "session">;
 
-export type Busy = "authorize" | "run" | "revoke" | "retry" | "reset" | null;
+export type Busy = "authorize" | "run" | "revoke" | "retry" | "reset" | "connect" | null;
 
 export interface DemoState {
   health: HealthResponse | null;
   healthError: string | null;
+  /** Connected wallet account (wallet signing only). Survives demo resets. */
+  account: string | null;
   auth: Authorization | null;
   run: AgentRunResult | null;
   retry: AgentRunResult | null;
@@ -24,10 +27,12 @@ export interface DemoState {
   child: CapabilityStateResponse | null;
   audit: AuditResponse | null;
   busy: Busy;
+  /** Human-readable step of a wallet transaction in flight. */
+  progress: string | null;
   error: string | null;
 }
 
-const EMPTY: Omit<DemoState, "health" | "healthError"> = {
+const EMPTY: Omit<DemoState, "health" | "healthError" | "account"> = {
   auth: null,
   run: null,
   retry: null,
@@ -35,19 +40,29 @@ const EMPTY: Omit<DemoState, "health" | "healthError"> = {
   child: null,
   audit: null,
   busy: null,
+  progress: null,
   error: null,
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+const STAGE_TEXT: Record<TxStage, string> = {
+  sign: "Confirm in your wallet…",
+  confirm: "Waiting for Monad to confirm…",
+};
+
 /**
  * Drives the golden demo against the real broker. Every allow/deny,
  * delegation and revocation shown in the UI comes from a broker response;
  * nothing is decided in frontend state (docs/PERSON_3_PRODUCT.md, Demo Reliability).
+ *
+ * With wallet signing, the user's wallet sends the root registration and the
+ * revocation itself; the broker only acts once it sees them on-chain.
  */
 export function useDemo() {
-  const [state, setState] = useState<DemoState>({ ...EMPTY, health: null, healthError: null });
+  const [state, setState] = useState<DemoState>({ ...EMPTY, health: null, healthError: null, account: null });
   const patch = useCallback((p: Partial<DemoState>) => setState((s) => ({ ...s, ...p })), []);
+  const walletMode = state.health?.principalSigning === "wallet";
 
   const checkHealth = useCallback(async () => {
     try {
@@ -61,18 +76,22 @@ export function useDemo() {
     void checkHealth();
   }, [checkHealth]);
 
+  useEffect(() => watchAccount((account) => patch({ account: account ?? null })), [patch]);
+
   /** Runs one action with a busy flag and error capture. */
   const act = useCallback(
     async (busy: Exclude<Busy, null>, fn: () => Promise<Partial<DemoState>>) => {
-      patch({ busy, error: null });
+      patch({ busy, error: null, progress: null });
       try {
-        patch({ ...(await fn()), busy: null });
+        patch({ ...(await fn()), busy: null, progress: null });
       } catch (e) {
-        patch({ busy: null, error: message(e) });
+        patch({ busy: null, progress: null, error: message(e) });
       }
     },
     [patch],
   );
+
+  const onStage = useCallback((stage: TxStage) => patch({ progress: STAGE_TEXT[stage] }), [patch]);
 
   /** Re-reads capability state and the audit trail for the current mandate. */
   const snapshot = useCallback(async (auth: Authorization, childId?: string) => {
@@ -84,23 +103,45 @@ export function useDemo() {
     return { root, child, audit };
   }, []);
 
+  const connect = () => act("connect", async () => ({ account: await connectWallet() }));
+
   const authorize = (req: CreateMandateRequest) =>
     act("authorize", async () => {
-      const { session: _session, ...auth } = await broker.createMandate(req);
+      const response = await broker.createMandate(req);
+      let created: CreateMandateResponse;
+      if ("status" in response && response.status === "AWAITING_SIGNATURE") {
+        if (!state.account) throw new Error("Connect your wallet first.");
+        const txHash = await sendAndConfirm(state.account, response.signRequest, onStage);
+        patch({ progress: "Broker is verifying on-chain…" });
+        created = await broker.confirmMandate(response.mandate.mandateId, txHash);
+      } else {
+        created = response as CreateMandateResponse;
+      }
+      const { session: _session, ...auth } = created;
       return { ...EMPTY, auth, ...(await snapshot(auth)) };
     });
 
-  const runAgent = () =>
+  /** "llm" runs the real model planner (broker LLM_PLANNER=openai); it falls back to the script if the model fails. */
+  const runAgent = (planner: "scripted" | "llm" = "scripted") =>
     act("run", async () => {
       if (!state.auth) throw new Error("Authorize the task first.");
-      const run = await broker.runAgent({ mandateId: state.auth.mandate.mandateId });
+      const run = await broker.runAgent({ mandateId: state.auth.mandate.mandateId, planner });
       return { run, retry: null, ...(await snapshot(state.auth, run.childCapabilityId)) };
     });
 
   const revoke = () =>
     act("revoke", async () => {
       if (!state.auth) throw new Error("Nothing to revoke.");
-      await broker.revokeCapability(state.auth.capability.capabilityId);
+      const capabilityId = state.auth.capability.capabilityId;
+      if (walletMode) {
+        if (!state.account) throw new Error("Connect your wallet first.");
+        const { signRequest } = await broker.prepareRevocation(capabilityId);
+        const txHash = await sendAndConfirm(state.account, signRequest, onStage);
+        patch({ progress: "Broker is verifying on-chain…" });
+        await broker.revokeCapability(capabilityId, txHash);
+      } else {
+        await broker.revokeCapability(capabilityId);
+      }
       return snapshot(state.auth, state.run?.childCapabilityId);
     });
 
@@ -123,5 +164,5 @@ export function useDemo() {
       return { ...EMPTY };
     });
 
-  return { state, authorize, runAgent, revoke, retryAfterRevoke, reset, checkHealth };
+  return { state, walletMode, connect, authorize, runAgent, revoke, retryAfterRevoke, reset, checkHealth };
 }

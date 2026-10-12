@@ -19,6 +19,8 @@ export interface AppOverrides {
   provider?: CapabilityStateProvider;
   /** Overrides the LLM planner provider (e.g. a deterministic fake in tests). */
   llmProvider?: LlmProvider;
+  /** Overrides wallet-mode on-chain confirmation polling (tests). */
+  confirmation?: { attempts: number; delayMs: number };
 }
 
 export interface BrokerApp {
@@ -32,7 +34,7 @@ export interface BrokerApp {
 /** Composition root: wires vault, trust-layer provider, tools, broker and HTTP API. */
 export async function createBrokerApp(
   config: Pick<BrokerConfig, "receiptKey" | "demoMode" | "corsOrigins" | "chainProvider"> &
-    Partial<Pick<BrokerConfig, "llmPlanner" | "llmModel" | "llmEffort">>,
+    Partial<Pick<BrokerConfig, "llmPlanner" | "llmModel" | "llmEffort" | "principalSigning">>,
   overrides: AppOverrides = {},
 ): Promise<BrokerApp> {
   const clock = overrides.clock ?? systemClock;
@@ -58,6 +60,8 @@ export async function createBrokerApp(
     clock,
     ids,
     logger,
+    principalSigning: config.principalSigning,
+    confirmation: overrides.confirmation,
   });
 
   const llmProvider =

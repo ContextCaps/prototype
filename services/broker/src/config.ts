@@ -3,6 +3,8 @@ export interface BrokerConfig {
   host: string;
   /** Monad uses the Person 1 SDK; mock is a deterministic local fallback. */
   chainProvider: "mock" | "monad";
+  /** "wallet": the principal's own wallet signs root registration and revocation (requires monad). */
+  principalSigning: "server" | "wallet";
   receiptKey: string;
   demoMode: boolean;
   corsOrigins: string[] | true;
@@ -20,10 +22,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BrokerConfig {
   if (chainProvider === "monad" && (receiptKey === DEV_RECEIPT_KEY || receiptKey.trim().length === 0)) {
     throw new Error("RECEIPT_HMAC_KEY must be set when CHAIN_PROVIDER=monad");
   }
+  const principalSigning = env.PRINCIPAL_SIGNING === "wallet" ? "wallet" : "server";
+  if (principalSigning === "wallet" && chainProvider !== "monad") {
+    throw new Error("PRINCIPAL_SIGNING=wallet requires CHAIN_PROVIDER=monad");
+  }
   return {
     port: Number(env.BROKER_PORT ?? 8787),
     host: env.BROKER_HOST ?? "127.0.0.1",
     chainProvider,
+    principalSigning,
     receiptKey,
     demoMode: (env.DEMO_MODE ?? "true") === "true",
     corsOrigins: env.CORS_ORIGINS ? env.CORS_ORIGINS.split(",").map((s) => s.trim()) : true,
