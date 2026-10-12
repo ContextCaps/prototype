@@ -162,13 +162,13 @@ Agent prompt design
 ## Definition of Done
 
 ```text
-[ ] contract tests pass
-[ ] deployed on Monad Testnet
-[ ] SDK queries live capability
-[ ] SDK revokes live capability
-[ ] delegation state works
-[ ] disclosure receipt anchoring works
-[ ] Person 2 integrates SDK successfully
+[x] contract tests pass                  local EVM + Person 2 conformance + golden flow
+[x] deployed on Monad Testnet            manifest: packages/contracts/deployments/monad-testnet.json
+[x] SDK queries live capability          root/child REVOKED verified directly on chain 10143
+[x] SDK revokes live capability          user's golden-flow completed on Monad provider
+[x] delegation state works               local EVM, inherited revoke/expiry
+[x] disclosure receipt anchoring works    local EVM, immutable hashes + events
+[x] Person 2 integrates SDK successfully  broker wiring + real-contract integration tests
 [ ] Person 3 can show tx/proof
 ```
 

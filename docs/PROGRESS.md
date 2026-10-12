@@ -32,10 +32,10 @@ Keep this file short and current.
 ### Person 1
 
 ```text
-[ ] P1-01 CapabilityRegistry skeleton
-[ ] P1-02 contract tests running
-[ ] P1-03 local deployment
-[ ] P1-04 SDK skeleton
+[x] P1-01 CapabilityRegistry skeleton   lifecycle + delegation + receipt anchors
+[x] P1-02 contract tests running        actual bytecode on local EVM
+[x] P1-03 local deployment              ephemeral local EVM deployments in tests
+[x] P1-04 SDK skeleton                  @contextcaps/contract-sdk
 ```
 
 ### Person 2
@@ -63,10 +63,10 @@ Keep this file short and current.
 ### Person 1
 
 ```text
-[ ] register
-[ ] query
-[ ] revoke
-[ ] expiry
+[x] register   local EVM verified
+[x] query      local EVM verified
+[x] revoke     local EVM verified, including descendants
+[x] expiry     local EVM verified at exact boundary
 ```
 
 ### Person 2
@@ -93,11 +93,11 @@ Keep this file short and current.
 
 ```text
 [ ] Web → Broker
-[~] Broker → Contract SDK      adapter ready (ContractSdkCapabilityStateProvider); waiting on P1 SDK
-[ ] SDK → Monad
+[x] Broker → Contract SDK      wired; conformance + golden flow on real local EVM
+[x] SDK → Monad               deployed registry; live root/child reads verified on chain 10143
 [ ] Broker result → Web
 [ ] Revoke from Web
-[~] Revoke reflected in Broker  done for mock + on-chain-observed revocation; needs real SDK
+[x] Revoke reflected in Broker  live Monad golden-flow: root and hotel-agent retries denied
 ```
 
 **Coordinator:** Person 3
@@ -112,7 +112,7 @@ Keep this file short and current.
 [x] reject invalid delegation
 [x] TOOL_BOUND checkout
 [x] booking mock succeeds
-[x] disclosure receipts available   (anchored via provider; mock until P1 SDK)
+[x] disclosure receipts available   (live Monad demo completed; 13 audit receipts)
 ```
 
 ## M5 — Attack Scenario
@@ -132,7 +132,7 @@ Keep this file short and current.
 [x] raw passport absent from LLM logs   (asserted in tests/broker, incl. everything sent to the LLM provider)
 [x] payment token absent from LLM logs  (asserted in tests/broker)
 [~] no private values on-chain          anchored payloads asserted id/hash-only (mock); re-check on Monad
-[~] critical tests pass                 P2: 173/173 (npm test) + typecheck clean; P1/P3 pending
+[~] critical tests pass                 P1/P2 local tests + typecheck clean; live Monad/P3 pending
 [x] demo reset command works            npm run demo:reset / demo:seed (DEMO_MODE=true)
 [ ] explorer links work
 [ ] failure reasons are human-readable
@@ -156,9 +156,9 @@ Keep this file short and current.
 
 | ID | Owner | Blocker | Depends On | Status |
 |---|---|---|---|---|
-| B-01 | P2 | Real Monad provider not wired | P1 `@contextcaps/contract-sdk` + exact input/output types (§12) | Open — mock provider in use |
+| B-01 | P2 | Real Monad provider not wired | P1 SDK | Closed — SDK wired and tested on local EVM |
 | B-02 | P1/P3 | Who signs registerCapability / revokeCapability on Monad (broker relayer key vs user wallet)? Broker supports both: it re-reads chain state on every request | Team decision | Open |
-| B-03 | P1 | Broker IDs are strings (`cap_…`, `rcpt_…`); hashes are 0x 32-byte hex. SDK maps string IDs → bytes32; reference `toBytes32Id` = keccak256(UTF-8(id)) provided | P1 | Proposed — awaiting P1 ack |
+| B-03 | P1 | String IDs → bytes32 mapping | P1 | Closed — SDK uses keccak256(UTF-8); canonical parent IDs recoverable after restart |
 | B-04 | P1/P3 | Principal endpoints (`/mandates`, `/revoke`) are unauthenticated in MVP; agent endpoints are session-bound. Wallet-signature auth for principals is future work | Team decision | Open (known limitation) |
 | B-05 | P2 | LLM planner not exercised against the live API in this environment (no credentials); request shape unit-tested, fake-provider tests L01–L06 pass | ANTHROPIC_API_KEY + LLM_PLANNER=anthropic | Open — run one live smoke before demo |
 
@@ -181,6 +181,8 @@ Keep this file short and current.
 ## Integration Notes
 
 Add only changes another owner must react to.
+
+- **P1 → P2/P3:** Contract, SDK and broker wiring implemented; handoff in `packages/contracts/README.md` and `packages/contract-sdk/README.md`. Monad Testnet registry deployed at `0x9d1eB4688D770202E9753eCD6263f2d60f189728`; importable manifest: `packages/contracts/deployments/monad-testnet.json`. User's live golden-flow completed (13 receipts, 4 lifecycle events), broker health reports `provider: monad`, and SDK reads directly from public RPC confirm root `cap_c832caf31ea26bed` and child `cap_739e67414f479215` are REVOKED. Demo lifecycle writes use a server-side principal signer; the submitted principal must be its full wallet address. Direct user signing is supported by SDK but UI/API wallet authentication remains future work (B-02/B-04). Monad uses random IDs because on-chain IDs cannot be reset/reused. Expiry rounds down to whole seconds. Canonical capability IDs are public opaque IDs; never embed private data in them.
 
 - **P2 → P3 (BREAKING vs first pass):** agent endpoints (`/context/request`, `/delegations`, `/tools/:id/invoke`) now require the `x-contextcaps-session` header. Use `session` from `POST /mandates` and `childSession` from `POST /delegations`. Identity fields in bodies are optional; mismatches are denied. Missing/unknown session → 401 `INVALID_SESSION`. Full handoff with examples: 01 §9.1.
 - **P2 → P3:** Broker API payload types are in `packages/shared-types/src/broker-api.ts`. `POST /api/v1/agent/runs` returns the full LLM-visible trace for the activity UI; `scenario:"retry"` drives Scene 8; `planner:"llm"` (when enabled) and `injection:"hotel_description" | "tool_response" | "booking_page"` are optional.
