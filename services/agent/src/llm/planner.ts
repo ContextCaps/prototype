@@ -1,11 +1,10 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { BOOKING_TOOL_ID } from "@contextcaps/policy";
 import { AGENT_IDS } from "@contextcaps/shared-types";
 import { z } from "zod";
 import { runHotelAgent, type HotelRecommendation } from "../hotelAgent";
 import { AuthorityRevokedError, type AgentSession } from "../session";
 import { nextWeekend, type AgentRunResult, type TravelTask } from "../travelAgent";
-import type { LlmProvider } from "./provider";
+import type { LlmProvider, PlannerMessage, PlannerResponse, PlannerTool, PlannerToolResultBlock, PlannerToolUseBlock } from "./provider";
 
 /**
  * Stable system prompt (no dates or ids, so the prefix caches). It explains the
@@ -72,7 +71,7 @@ const TOOL_INPUTS = {
 
 type ToolName = keyof typeof TOOL_INPUTS;
 
-export const PLANNER_TOOLS: Anthropic.Beta.BetaTool[] = [
+export const PLANNER_TOOLS: PlannerTool[] = [
   {
     name: "request_context",
     description:
@@ -174,7 +173,7 @@ interface RunState {
 export async function runLlmTravelAgent(session: AgentSession, task: TravelTask, options: LlmPlannerOptions): Promise<AgentRunResult> {
   const { departureDate, returnDate } = nextWeekend(options.now);
   const pages = session.environment.pagesToRead.map((u) => `- ${u}`).join("\n");
-  const messages: Anthropic.Beta.BetaMessageParam[] = [
+  const messages: PlannerMessage[] = [
     {
       role: "user",
       content: [
@@ -197,12 +196,11 @@ export async function runLlmTravelAgent(session: AgentSession, task: TravelTask,
 
   const maxTurns = options.maxTurns ?? 20;
   for (let turn = 0; turn < maxTurns; turn++) {
-    let response: Anthropic.Beta.BetaMessage;
+    let response: PlannerResponse;
     try {
       response = await options.provider.createMessage({ system: PLANNER_SYSTEM_PROMPT, tools: PLANNER_TOOLS, messages });
     } catch (error) {
-      const label = error instanceof Anthropic.APIError ? `${error.constructor.name} (${error.status ?? "no status"})` : "provider error";
-      return finish({ status: "PLANNER_ERROR", summary: `LLM provider failed: ${label}.`, booking: state.booking });
+      return finish({ status: "PLANNER_ERROR", summary: "LLM provider failed.", booking: state.booking });
     }
 
     for (const block of response.content) {
@@ -212,7 +210,7 @@ export async function runLlmTravelAgent(session: AgentSession, task: TravelTask,
       return finish({ status: state.booking ? "BOOKED" : "NO_BOOKING", summary: "The model declined to continue.", booking: state.booking });
     }
 
-    const toolUses = response.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use");
+    const toolUses = response.content.filter((b): b is PlannerToolUseBlock => b.type === "tool_use");
     if (toolUses.length === 0) {
       return finish(
         state.booking
@@ -225,8 +223,8 @@ export async function runLlmTravelAgent(session: AgentSession, task: TravelTask,
     }
 
     // Append the assistant turn unchanged (thinking/fallback blocks included).
-    messages.push({ role: "assistant", content: response.content as Anthropic.Beta.BetaContentBlockParam[] });
-    const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
+    messages.push({ role: "assistant", content: response.content });
+    const results: PlannerToolResultBlock[] = [];
     try {
       for (const use of toolUses) {
         results.push(await executeTool(session, use, task, state));
@@ -245,11 +243,11 @@ export async function runLlmTravelAgent(session: AgentSession, task: TravelTask,
 
 async function executeTool(
   session: AgentSession,
-  use: Anthropic.Beta.BetaToolUseBlock,
+  use: PlannerToolUseBlock,
   task: TravelTask,
   state: RunState,
-): Promise<Anthropic.Beta.BetaToolResultBlockParam> {
-  const ok = (value: unknown, isError = false): Anthropic.Beta.BetaToolResultBlockParam => ({
+): Promise<PlannerToolResultBlock> {
+  const ok = (value: unknown, isError = false): PlannerToolResultBlock => ({
     type: "tool_result",
     tool_use_id: use.id,
     content: typeof value === "string" ? value : JSON.stringify(value),

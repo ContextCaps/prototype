@@ -1,5 +1,4 @@
-import type Anthropic from "@anthropic-ai/sdk";
-import type { LlmProvider, PlannerRequest } from "./provider";
+import type { LlmProvider, PlannerRequest, PlannerResponse, PlannerStopReason } from "./provider";
 
 export interface FakeToolCall {
   name: string;
@@ -9,7 +8,7 @@ export interface FakeToolCall {
 export interface FakeTurn {
   text?: string;
   toolCalls?: FakeToolCall[];
-  stopReason?: Anthropic.Beta.BetaStopReason;
+  stopReason?: PlannerStopReason;
 }
 
 /** A completed tool call as the fake model "remembers" it from the transcript. */
@@ -24,7 +23,7 @@ export interface ObservedToolResult {
 export type FakeScript = (ctx: { turn: number; request: PlannerRequest; results: ObservedToolResult[] }) => FakeTurn;
 
 /**
- * Deterministic stand-in for Claude. It only sees what a real model would see
+ * Deterministic stand-in for a model provider. It only sees what a real model would see
  * (the PlannerRequest), records every request for leak assertions, and replies
  * according to a script. Security is never tested through this — it exercises
  * the planner loop and the tool surface.
@@ -39,25 +38,16 @@ export class FakeLlmProvider implements LlmProvider {
     this.#script = script;
   }
 
-  async createMessage(request: PlannerRequest): Promise<Anthropic.Beta.BetaMessage> {
+  async createMessage(request: PlannerRequest): Promise<PlannerResponse> {
     this.requests.push(structuredClone(request));
     const turn = this.#script({ turn: this.requests.length, request, results: observedResults(request) });
-    const content: unknown[] = [];
-    if (turn.text) content.push({ type: "text", text: turn.text, citations: null });
+    const content: PlannerResponse["content"] = [];
+    if (turn.text) content.push({ type: "text", text: turn.text });
     for (const call of turn.toolCalls ?? []) {
       content.push({ type: "tool_use", id: `toolu_fake_${++this.#ids}`, name: call.name, input: call.input });
     }
     const stopReason = turn.stopReason ?? ((turn.toolCalls?.length ?? 0) > 0 ? "tool_use" : "end_turn");
-    return {
-      id: `msg_fake_${this.requests.length}`,
-      type: "message",
-      role: "assistant",
-      model: "fake-planner",
-      content,
-      stop_reason: stopReason,
-      stop_sequence: null,
-      usage: { input_tokens: 0, output_tokens: 0 },
-    } as unknown as Anthropic.Beta.BetaMessage;
+    return { content, stop_reason: stopReason };
   }
 }
 

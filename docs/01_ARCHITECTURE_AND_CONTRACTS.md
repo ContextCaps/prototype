@@ -481,7 +481,7 @@ POST /api/v1/agent/runs
         "planner": "scripted" | "llm" | "scripted-fallback", "summary": "…", "booking"?: {…, "reference"},
         "haltReasonCode"?: "CAPABILITY_REVOKED", "childCapabilityId"?: "cap_0002",
         "trace": [ LLM-visible entries: task | note | external_content | tool_call {tool, input, output} ] }
-   planner "llm" → 503 LLM_UNAVAILABLE unless LLM_PLANNER=anthropic. Runs use the mandate's root session server-side.
+   planner "llm" → 503 LLM_UNAVAILABLE unless LLM_PLANNER=openai. Runs use the mandate's root session server-side.
 
 GET /api/v1/health → { "ok": true, "provider": "mock" | "monad", "llmPlanner": "available" | "unavailable" }
 ```

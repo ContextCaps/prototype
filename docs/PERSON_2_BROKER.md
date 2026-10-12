@@ -275,7 +275,7 @@ Monad deployment config
 [x] TOOL_BOUND works
 [x] delegation attenuation works
 [x] malicious salary request blocked
-[~] Person 1 SDK integrated             adapter + conformance suite ready; waiting on SDK
+[x] Person 1 SDK integrated             contract-SDK provider wired; conformance, local EVM, and Monad Testnet reads verified
 [x] audit API available
 [x] tests pass                          (npm test — status in PROGRESS.md)
 ```

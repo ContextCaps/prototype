@@ -33,9 +33,20 @@ export class HandleStore {
     return this.#handles.get(handle);
   }
 
-  consume(handle: string): void {
-    const record = this.#handles.get(handle);
-    if (record) record.consumed = true;
+  /**
+   * Atomically reserves every handle for one connector invocation.
+   *
+   * This method contains no await points. In Node's event loop that makes the
+   * check-and-consume transition indivisible: a concurrent invocation sees the
+   * first invocation's handles as consumed before it can reach a connector.
+   */
+  consumeAllIfAvailable(handles: readonly string[], now: Date): boolean {
+    const records = handles.map((handle) => this.#handles.get(handle));
+    if (records.some((record) => !record || record.consumed || now.getTime() >= Date.parse(record.expiresAt))) {
+      return false;
+    }
+    for (const record of records) record!.consumed = true;
+    return true;
   }
 
   reset(): void {
