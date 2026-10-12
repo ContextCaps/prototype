@@ -1,7 +1,7 @@
 export interface BrokerConfig {
   port: number;
   host: string;
-  /** "mock" until Person 1's SDK is wired in (see chain/contractSdkProvider.ts). */
+  /** Monad uses the Person 1 SDK; mock is a deterministic local fallback. */
   chainProvider: "mock" | "monad";
   receiptKey: string;
   demoMode: boolean;

@@ -8,7 +8,8 @@ const logger = createLogger();
 // Demo mode uses sequential ids (mdt_0001, cap_0001 after every reset) so the
 // web app and scripts see stable identifiers. Session tokens and tool handles
 // are always random regardless.
-const { server } = await createBrokerApp(config, { logger, ids: config.demoMode ? sequentialIds() : randomIds });
+// On-chain IDs are immutable and cannot be reused after a broker reset or restart.
+const { server } = await createBrokerApp(config, { logger, ids: config.demoMode && config.chainProvider === "mock" ? sequentialIds() : randomIds });
 
 await server.listen({ port: config.port, host: config.host });
 logger.info("broker.listening", { provider: config.chainProvider });

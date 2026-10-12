@@ -16,7 +16,8 @@ import { describe, expect, it } from "vitest";
  */
 export interface ProviderUnderTest {
   provider: CapabilityStateProvider;
-  setNow?: (date: Date) => void;
+  /** Sync clock setters or async EVM time-travel setters are both supported. */
+  setNow?: (date: Date) => unknown;
 }
 
 const T0 = new Date("2026-10-12T09:00:00Z");
@@ -40,11 +41,14 @@ function capability(overrides: Partial<ContextCapability> = {}): ContextCapabili
   return { ...fields, status: "ACTIVE", policyHash: computePolicyHash(fields) };
 }
 
-export function runProviderConformance(name: string, factory: () => ProviderUnderTest): void {
+export function runProviderConformance(name: string, factory: () => ProviderUnderTest, options: { principal?: () => string } = {}): void {
+  const fixture = (overrides: Partial<ContextCapability> = {}) => capability({
+    ...(options.principal ? { principal: options.principal() } : {}), ...overrides,
+  });
   describe(`CapabilityStateProvider conformance: ${name}`, () => {
     it("register → ACTIVE with the same policy hash and expiry", async () => {
       const { provider } = factory();
-      const cap = capability();
+      const cap = fixture();
       const tx = await provider.registerCapability(cap);
       expect(tx.txHash).toMatch(/^0x[0-9a-fA-F]+$/);
       const state = await provider.getCapabilityState(cap.capabilityId);
@@ -59,7 +63,7 @@ export function runProviderConformance(name: string, factory: () => ProviderUnde
 
     it("revoke → REVOKED on the next read", async () => {
       const { provider } = factory();
-      const cap = capability();
+      const cap = fixture();
       await provider.registerCapability(cap);
       const tx = await provider.revokeCapability(cap.capabilityId);
       expect(tx.txHash).toMatch(/^0x/);
@@ -68,9 +72,9 @@ export function runProviderConformance(name: string, factory: () => ProviderUnde
 
     it("delegation registers the child with its parent link", async () => {
       const { provider } = factory();
-      const parent = capability();
+      const parent = fixture();
       await provider.registerCapability(parent);
-      const child = capability({ agentId: "hotel-agent", parentCapabilityId: parent.capabilityId, delegationDepth: 1 });
+      const child = fixture({ agentId: "hotel-agent", parentCapabilityId: parent.capabilityId, delegationDepth: 1 });
       const delegation: Delegation = {
         delegationId: `dlg_${child.capabilityId}`,
         mandateId: child.mandateId,
@@ -88,7 +92,7 @@ export function runProviderConformance(name: string, factory: () => ProviderUnde
 
     it("anchoring a receipt returns a transaction hash", async () => {
       const { provider } = factory();
-      const cap = capability();
+      const cap = fixture();
       await provider.registerCapability(cap);
       const receipt: DisclosureReceipt = {
         receiptId: "rcpt_conf",
@@ -110,10 +114,10 @@ export function runProviderConformance(name: string, factory: () => ProviderUnde
     it("expiry → EXPIRED once the clock passes expiresAt (when the clock is controllable)", async () => {
       const subject = factory();
       if (!subject.setNow) return;
-      const cap = capability({ expiresAt: "2026-10-13T00:00:00.000Z" });
-      subject.setNow(T0);
+      const cap = fixture({ expiresAt: "2026-10-13T00:00:00.000Z" });
+      await subject.setNow(T0);
       await subject.provider.registerCapability(cap);
-      subject.setNow(new Date("2026-10-13T00:00:00.000Z"));
+      await subject.setNow(new Date("2026-10-13T00:00:00.000Z"));
       expect((await subject.provider.getCapabilityState(cap.capabilityId))?.status).toBe("EXPIRED");
     });
   });

@@ -15,6 +15,7 @@ import { AGENT_IDS, RESOURCES, type CreateMandateResponse } from "@contextcaps/s
 import { createBrokerApp } from "../src/app";
 import { silentLogger } from "../src/logger";
 import { sequentialIds } from "../src/runtime";
+import { Wallet } from "ethers";
 
 type Json = Record<string, any>;
 
@@ -76,7 +77,7 @@ async function reset(client: BrokerClient): Promise<void> {
 async function seed(client: BrokerClient, print: boolean): Promise<CreateMandateResponse> {
   await reset(client);
   const res = await client.call("POST", "/mandates", {
-    principal: "0xA11CE",
+    principal: process.env.MONAD_PRIVATE_KEY ? new Wallet(process.env.MONAD_PRIVATE_KEY).address : "0xA11CE",
     description: "Book my Singapore trip next weekend under $700.",
     constraints: { budgetUsd: 700, destination: "Singapore" },
   });
