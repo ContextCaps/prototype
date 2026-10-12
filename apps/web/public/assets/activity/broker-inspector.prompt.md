@@ -1,0 +1,7 @@
+# ContextCaps request inspector
+
+Generated using the built-in imagegen tool on 2026-10-12. References: the user's prompt injection mockup (`codex-clipboard-8584189e-dd9e-4afc-a074-1677b71581be.png`) and the existing `agent-mascots.png` atlas. Transparent character illustration, separate from HTML text and live decision states.
+
+## Generation prompt
+
+Use case: stylized-concept. Asset type: isolated transparent ContextCaps security mascot for an interactive demo card. Reference image 1 is the user's prompt-injection UI mockup; take ONLY the purple ContextCaps robot with the magnifying glass as the character/style reference. Reference image 2 establishes our current shipped 3D character family. Create one full-body cute glossy white rounded robot wearing a purple baseball cap, purple face visor with friendly white eyes/smile, purple boots/gloves and a purple diamond chest emblem. It holds a large round purple magnifying glass next to the right side of its face as if checking permissions; reproduce the approachable stance and highly polished smooth 3D toy render from reference 1. Color palette white, royal purple #642df4 with soft lavender accents. Centered square composition, complete cap/glass/body fully within frame, 12 percent transparent margin. Actual transparent alpha background, clean edges, no UI, no words, no captions, no circles or halos behind the robot, no cards, no borders, no watermark, no other characters. Soft studio lighting matching existing robot atlas.

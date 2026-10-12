@@ -1,4 +1,4 @@
-import { ActivityFeed } from "./components/ActivityFeed";
+import { AgentActivity } from "./components/AgentActivity";
 import { AuditLog } from "./components/AuditLog";
 import { AuthorizeStep } from "./components/AuthorizeStep";
 import { CheckoutCard } from "./components/CheckoutCard";
@@ -36,7 +36,11 @@ export function App() {
           </p>
         )}
 
-        <Step n={1} title="Authorize the task" lead="One purpose-bound capability for the Travel Agent. Raw data is never part of it.">
+        <Step
+          n={1}
+          title="Authorize the task"
+          lead="Grant one purpose-bound capability to the Travel Agent. Raw data is never part of it."
+        >
           <AuthorizeStep
             health={health}
             auth={auth}
@@ -52,13 +56,14 @@ export function App() {
 
         <Step
           n={2}
+          className="agent-activity"
           title="Agent activity"
-          lead="Every request goes through the broker. Raw asks are blocked; minimum facts are derived."
+          lead="Every request goes through ContextCaps. Raw asks are blocked; minimum facts are released."
           locked={!auth && "Authorize the task to let the Travel Agent start."}
           aside={
-            auth && !run && (
+            auth && (
               <div className="run-controls">
-                {llmAvailable && (
+                {llmAvailable && !run && (
                   <div className="seg" role="radiogroup" aria-label="Agent planner">
                     {(["scripted", "llm"] as const).map((p) => (
                       <button key={p} type="button" role="radio" aria-checked={planner === p} className={planner === p ? "is-on" : ""} onClick={() => setPlanner(p)} disabled={!!busy}>
@@ -67,7 +72,7 @@ export function App() {
                     ))}
                   </div>
                 )}
-                <button type="button" className="btn btn-primary" onClick={() => runAgent(llmAvailable ? planner : "scripted")} disabled={!!busy}>
+                <button type="button" className="btn btn-primary" onClick={() => runAgent(llmAvailable ? planner : "scripted")} disabled={!!busy || !!run} title={run ? "Reset the demo and authorize a new task to run again." : undefined}>
                   {busy === "run" ? (planner === "llm" && llmAvailable ? "Model thinking…" : "Agent working…") : "Run Travel Agent"}{" "}
                   <i className="ph ph-play" aria-hidden="true" />
                 </button>
@@ -84,11 +89,12 @@ export function App() {
               {run.planner === "scripted-fallback" && `: the model failed (${run.fallbackReason ?? "unknown error"}), so the script ran instead.`}
             </p>
           )}
-          {run ? <ActivityFeed run={run} /> : <p className="muted">The agent has not run yet.</p>}
+          <AgentActivity run={run} busy={busy === "run"} child={child} destination={auth?.mandate.constraints.destination} />
         </Step>
 
         <Step
           n={3}
+          className="delegate-checkout"
           title="Delegate & check out"
           lead="The Hotel Agent gets a narrower capability. Checkout secrets go only to the booking tool."
           locked={!run && "Runs after the Travel Agent finishes."}
@@ -101,8 +107,9 @@ export function App() {
 
         <Step
           n={4}
+          className="revoke-step"
           title="Revoke access"
-          lead={walletMode ? "You revoke from your own wallet. It cascades to every child capability and fails closed." : "Revocation cascades to every child capability and fails closed."} locked={!run && "Available after the agent has run."}>
+          lead={root?.capability.status === "REVOKED" ? "Withdraw access once. Every delegated capability stops with it." : walletMode ? "You revoke from your own wallet. It cascades to every child capability and fails closed." : "Withdraw access once. Every delegated capability stops with it."} locked={!run && "Available after the agent has run."}>
           {root && (
             <RevokePanel
               provider={provider}

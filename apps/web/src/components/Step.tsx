@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 interface StepProps {
+  className?: string;
   n: number;
   title: string;
   lead?: string;
@@ -10,9 +11,9 @@ interface StepProps {
 }
 
 /** One numbered scene of the golden flow. Locked steps stay visible but explain what unlocks them. */
-export function Step({ n, title, lead, locked, aside, children }: StepProps) {
+export function Step({ n, title, lead, locked, aside, children, className }: StepProps) {
   return (
-    <section className={`step${locked ? " is-locked" : ""}`} aria-labelledby={`step-${n}`}>
+    <section className={`step${locked ? " is-locked" : ""}${className ? ` ${className}` : ""}`} aria-labelledby={`step-${n}`}>
       <header className="step-head">
         <span className="step-num" aria-hidden="true">{n}</span>
         <div className="step-title">
