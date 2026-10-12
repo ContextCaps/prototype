@@ -9,6 +9,7 @@
   "scripts": {
     "start:broker": "tsx services/broker/src/main.ts",
     "dev:broker": "tsx watch services/broker/src/main.ts",
+    "dev:landing": "node apps/landing/serve.mjs",
     "demo:reset": "tsx services/broker/scripts/demo.ts reset",
     "demo:seed": "tsx services/broker/scripts/demo.ts seed",
     "demo:golden-flow": "tsx services/broker/scripts/demo.ts golden-flow",
