@@ -8,6 +8,7 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
+    "@contextcaps/contract-sdk": "0.1.0",
     "@contextcaps/agent": "0.1.0",
     "@contextcaps/policy": "0.1.0",
     "@contextcaps/shared-types": "0.1.0",

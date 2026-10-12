@@ -10,6 +10,9 @@
     "services/broker/src",
     "services/broker/scripts",
     "services/agent/src",
-    "tests/broker"
+    "tests/broker",
+    "packages/contract-sdk/src",
+    "packages/contracts/scripts",
+    "tests/contracts"
   ]
 }
