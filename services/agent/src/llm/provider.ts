@@ -61,7 +61,8 @@ export class OpenAiLlmProvider implements LlmProvider {
   readonly name = "openai";
   readonly #apiKey: string;
   readonly #model: string;
-  readonly #effort: Exclude<Effort, "max">;
+  /** Sent only when configured: gpt-5.4-mini rejects reasoning_effort together with function tools on Chat Completions. */
+  readonly #effort?: Exclude<Effort, "max">;
   readonly #fetch: typeof globalThis.fetch;
 
   constructor(options: OpenAiProviderOptions = {}) {
@@ -69,7 +70,7 @@ export class OpenAiLlmProvider implements LlmProvider {
     if (!apiKey?.trim()) throw new Error("OPENAI_API_KEY must be set when LLM_PLANNER=openai");
     this.#apiKey = apiKey;
     this.#model = options.model ?? DEFAULT_PLANNER_MODEL;
-    this.#effort = options.effort === "max" ? "xhigh" : (options.effort ?? "low");
+    this.#effort = options.effort === "max" ? "xhigh" : options.effort;
     this.#fetch = options.fetch ?? globalThis.fetch;
   }
 
@@ -79,7 +80,7 @@ export class OpenAiLlmProvider implements LlmProvider {
       headers: { authorization: `Bearer ${this.#apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
         model: this.#model,
-        reasoning_effort: this.#effort,
+        ...(this.#effort ? { reasoning_effort: this.#effort } : {}),
         max_completion_tokens: 4096,
         messages: toOpenAiMessages(request),
         tools: request.tools.map((tool) => ({

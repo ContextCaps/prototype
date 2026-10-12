@@ -246,9 +246,10 @@ describe("OpenAiLlmProvider request shape", () => {
       },
     });
     const response = await provider.createMessage({ system: PLANNER_SYSTEM_PROMPT, tools: PLANNER_TOOLS, messages: [{ role: "user", content: "hi" }] });
+    // Live API: gpt-5.4-mini rejects reasoning_effort with function tools, so it is omitted unless configured.
+    expect(calls[0]).not.toHaveProperty("reasoning_effort");
     expect(calls[0]).toMatchObject({
       model: "gpt-5.4-mini",
-      reasoning_effort: "low",
       max_completion_tokens: 4096,
       messages: [{ role: "system", content: PLANNER_SYSTEM_PROMPT }, { role: "user", content: "hi" }],
     });
