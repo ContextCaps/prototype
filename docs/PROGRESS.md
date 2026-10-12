@@ -160,7 +160,7 @@ Keep this file short and current.
 | B-02 | P1/P3 | Who signs registerCapability / revokeCapability on Monad (broker relayer key vs user wallet)? Broker supports both: it re-reads chain state on every request | Team decision | Open |
 | B-03 | P1 | String IDs → bytes32 mapping | P1 | Closed — SDK uses keccak256(UTF-8); canonical parent IDs recoverable after restart |
 | B-04 | P1/P3 | Principal endpoints (`/mandates`, `/revoke`) are unauthenticated in MVP; agent endpoints are session-bound. Wallet-signature auth for principals is future work | Team decision | Open (known limitation) |
-| B-05 | P2 | LLM planner not exercised against the live API in this environment (no credentials); request shape unit-tested, fake-provider tests L01–L06 pass | ANTHROPIC_API_KEY + LLM_PLANNER=anthropic | Open — run one live smoke before demo |
+| B-05 | P2 | GPT planner needs one live smoke after the OpenAI migration; request shape and fake-provider tests L01–L06 pass | OPENAI_API_KEY + LLM_PLANNER=openai | Open — run one live smoke before demo |
 
 ## Shared Decisions
 
@@ -202,7 +202,8 @@ Add only changes another owner must react to.
 [x] raw passport / raw calendar never reach LLM   (provider-request leak tests)
 [x] salary request blocked                        (+ 3 realistic injection variants)
 [x] tool-bound secret never reaches LLM           (TBA08: logs, receipts, trace, API, anchors)
-[x] handle replay / wrong agent / wrong tool / other mandate fail   (TBA01–TBA07)
+[x] handle replay / concurrent spend / wrong agent / wrong tool / other mandate fail   (TBA01–TBA07, TBA05b)
+[x] Monad receipt HMAC key rejects empty or whitespace-only values
 [x] derived-query quota                           (Q01–Q05)
 [x] child capability narrower than parent; ancestor revoke/expiry blocks descendants   (D01–D10)
 [x] receipts contain no private values; keyed commitments documented

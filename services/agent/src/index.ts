@@ -34,7 +34,18 @@ export {
   type InjectionScenario,
 } from "./environment";
 
-export { AnthropicLlmProvider, DEFAULT_PLANNER_MODEL, type AnthropicProviderOptions, type Effort, type LlmProvider, type PlannerRequest } from "./llm/provider";
+export {
+  OpenAiApiError,
+  OpenAiLlmProvider,
+  DEFAULT_PLANNER_MODEL,
+  type OpenAiProviderOptions,
+  type Effort,
+  type LlmProvider,
+  type PlannerMessage,
+  type PlannerRequest,
+  type PlannerResponse,
+  type PlannerTool,
+} from "./llm/provider";
 export { FakeLlmProvider, type FakeScript, type FakeToolCall, type FakeTurn, type ObservedToolResult } from "./llm/fakeProvider";
 export { PLANNER_SYSTEM_PROMPT, PLANNER_TOOLS, runLlmTravelAgent, type LlmPlannerOptions } from "./llm/planner";
 

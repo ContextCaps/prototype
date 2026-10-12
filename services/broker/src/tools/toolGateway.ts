@@ -156,6 +156,13 @@ export class ToolGateway {
       return reject("OUT_OF_SCOPE", "Charge exceeds the authorized task budget.");
     }
 
+    // Reserve every handle before the first await that can reach an external
+    // side effect. A failed connector attempt consumes its credentials rather
+    // than allowing an ambiguous retry after a possible partial execution.
+    if (!handles.consumeAllIfAvailable(bindings.map((binding) => binding.handle), now)) {
+      return reject("TOOL_NOT_ALLOWED", "Missing, used or expired tool handle.");
+    }
+
     const secrets: Record<string, ToolSecret> = {};
     for (const binding of bindings) secrets[binding.resource] = vault.resolveToolSecret(binding.resource);
 
@@ -176,7 +183,6 @@ export class ToolGateway {
       return reject("TOOL_NOT_ALLOWED", "Tool output contained protected data and was withheld.");
     }
 
-    for (const binding of bindings) handles.consume(binding.handle);
     return { bindings, output };
   }
 }

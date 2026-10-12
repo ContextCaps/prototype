@@ -229,25 +229,34 @@ describe("LLM planner behind the broker tool surface (fake provider)", () => {
   });
 });
 
-describe("AnthropicLlmProvider request shape", () => {
-  it("calls the beta Messages API with the default model, effort, refusal fallback and stable prefix", async () => {
-    const { AnthropicLlmProvider, PLANNER_SYSTEM_PROMPT, PLANNER_TOOLS } = await import("@contextcaps/agent");
+describe("OpenAiLlmProvider request shape", () => {
+  it("calls Chat Completions with GPT function tools and translates the tool call", async () => {
+    const { OpenAiLlmProvider, PLANNER_SYSTEM_PROMPT, PLANNER_TOOLS } = await import("@contextcaps/agent");
     const calls: Array<Record<string, unknown>> = [];
-    const client = {
-      beta: { messages: { create: async (params: Record<string, unknown>) => (calls.push(params), { content: [], stop_reason: "end_turn" }) } },
-    };
-    const provider = new AnthropicLlmProvider({ client: client as never });
-    await provider.createMessage({ system: PLANNER_SYSTEM_PROMPT, tools: PLANNER_TOOLS, messages: [{ role: "user", content: "hi" }] });
-    expect(calls[0]).toMatchObject({
-      model: "claude-opus-5-5",
-      max_tokens: 16000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      output_config: { effort: "medium" },
-      cache_control: { type: "ephemeral" },
-      system: PLANNER_SYSTEM_PROMPT,
+    const provider = new OpenAiLlmProvider({
+      apiKey: "test-key",
+      fetch: async (_url, init) => {
+        calls.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return new Response(
+          JSON.stringify({
+            choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "call_1", function: { name: "request_context", arguments: '{"resource":"passport.validity","operation":"valid_for_trip"}' } }] } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
     });
-    expect(calls[0]).not.toHaveProperty("thinking");
+    const response = await provider.createMessage({ system: PLANNER_SYSTEM_PROMPT, tools: PLANNER_TOOLS, messages: [{ role: "user", content: "hi" }] });
+    expect(calls[0]).toMatchObject({
+      model: "gpt-5.4-mini",
+      reasoning_effort: "low",
+      max_completion_tokens: 4096,
+      messages: [{ role: "system", content: PLANNER_SYSTEM_PROMPT }, { role: "user", content: "hi" }],
+    });
+    expect(calls[0]?.tools).toEqual(expect.arrayContaining([expect.objectContaining({ type: "function", function: expect.objectContaining({ name: "request_context" }) })]));
+    expect(response).toMatchObject({
+      stop_reason: "tool_use",
+      content: [{ type: "tool_use", id: "call_1", name: "request_context", input: { resource: "passport.validity", operation: "valid_for_trip" } }],
+    });
     expect(PLANNER_SYSTEM_PROMPT).not.toMatch(/\d{4}-\d{2}-\d{2}/); // no volatile dates in the cached prefix
   });
 });

@@ -1,4 +1,4 @@
-import { AnthropicLlmProvider, runLlmScenario, type LlmProvider } from "@contextcaps/agent";
+import { OpenAiLlmProvider, runLlmScenario, type LlmProvider } from "@contextcaps/agent";
 import { ContextVault } from "@contextcaps/vault";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "./api/server";
@@ -62,7 +62,7 @@ export async function createBrokerApp(
 
   const llmProvider =
     overrides.llmProvider ??
-    (config.llmPlanner === "anthropic" ? new AnthropicLlmProvider({ model: config.llmModel, effort: config.llmEffort }) : undefined);
+    (config.llmPlanner === "openai" ? new OpenAiLlmProvider({ model: config.llmModel, effort: config.llmEffort }) : undefined);
 
   const server = await buildServer({
     broker,

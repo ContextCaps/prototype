@@ -20,6 +20,42 @@ class MockFlightConnector implements ToolConnector {
   }
 }
 
+/** Delays its side effect so a second concurrent invocation reaches the gateway. */
+class DeferredBookingConnector implements ToolConnector {
+  readonly toolId = BOOKING_TOOL_ID;
+  readonly handleArguments = {
+    identityHandle: RESOURCES.PROFILE_LEGAL_NAME,
+    paymentHandle: RESOURCES.PAYMENT_HANDLE,
+  };
+  readonly outputFields = ["bookingStatus", "reference"];
+  executions = 0;
+  readonly executionStarted: Promise<void>;
+  readonly #release: () => void;
+  #started = false;
+
+  constructor() {
+    let start!: () => void;
+    this.executionStarted = new Promise((resolve) => {
+      start = resolve;
+    });
+    this.#release = () => start();
+  }
+
+  validate(): string | undefined {
+    return undefined;
+  }
+
+  async execute(): Promise<Record<string, unknown>> {
+    this.executions += 1;
+    if (!this.#started) {
+      this.#started = true;
+      this.#release();
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    return { bookingStatus: "CONFIRMED", reference: "CC-CONCURRENT-001" };
+  }
+}
+
 describe("TOOL_BOUND credential lifecycle (TBA01–TBA08)", () => {
   let h: Harness;
   let flight: MockFlightConnector;
@@ -101,6 +137,20 @@ describe("TOOL_BOUND credential lifecycle (TBA01–TBA08)", () => {
     const replay = await h.broker.invokeToolForSession(mandate.session.sessionId, BOOKING_TOOL_ID, req);
     expect(replay).toMatchObject({ allowed: false, reasonCode: "TOOL_NOT_ALLOWED" });
     expect(h.booking.bookings).toHaveLength(1);
+  });
+
+  it("TBA05b concurrent checkout attempts reserve the shared handles before either connector side effect", async () => {
+    const delayed = new DeferredBookingConnector();
+    h = makeHarness({ extraConnectors: [delayed] });
+    mandate = await h.createTravelMandate();
+    const handles = await issue(mandate.session.sessionId);
+    const first = h.broker.invokeToolForSession(mandate.session.sessionId, BOOKING_TOOL_ID, bookingArgs(handles));
+    await delayed.executionStarted;
+    const second = await h.broker.invokeToolForSession(mandate.session.sessionId, BOOKING_TOOL_ID, bookingArgs(handles));
+
+    await expect(first).resolves.toMatchObject({ allowed: true, reasonCode: "ALLOW_TOOL_BOUND" });
+    expect(second).toMatchObject({ allowed: false, reasonCode: "TOOL_NOT_ALLOWED" });
+    expect(delayed.executions).toBe(1);
   });
 
   it("TBA06 a handle from a different mandate is rejected", async () => {
