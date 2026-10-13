@@ -48,6 +48,11 @@
   --nav-h: 72px;
 }
 
+/* Wide screens give the whole console more room at once, so every step
+   (header, badge, title and content) shares the same left and right edge. */
+@media (min-width: 1440px) { :root { --container: 1400px; } }
+@media (min-width: 1800px) { :root { --container: 1600px; } }
+
 *,
 *::before,
 *::after { box-sizing: border-box; }
@@ -212,12 +217,13 @@ code { font-size: 0.88em; overflow-wrap: anywhere; }
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: var(--indigo-900);
+  /* One badge style for every main step. */
+  background: linear-gradient(145deg, #5a2ff0, #26117a);
   color: #fff;
   font-weight: 700;
 }
 .step-title { flex: 1; min-width: 220px; }
-.step-title h2 { font-weight: 800; font-size: clamp(1.4rem, 2.2vw, 1.85rem); letter-spacing: -0.035em; line-height: 1.15; }
+.step-title h2 { font-weight: 800; font-size: clamp(1.4rem, 2.2vw, 1.85rem); letter-spacing: -0.035em; line-height: 1.15; color: var(--indigo-950); }
 .step-title p { margin-top: 4px; max-width: 68ch; color: var(--text-soft); }
 .step-aside { align-self: center; }
 
@@ -721,9 +727,10 @@ label.fact-label { cursor: pointer; width: fit-content; }
 
 /* Stage 2.3: the injection attempt and the safe continuation, in trace order. */
 .injection-story { display: grid; gap: 20px; padding-top: 18px; border-top: 1px solid var(--border); }
-.injection-heading { display: flex; align-items: center; gap: 14px; padding: 2px 4px; }
-.injection-heading > .activity-lane-number { width: 42px; height: 42px; background: linear-gradient(145deg, #5a2ff0, #26117a); color: #fff; font-size: 1.4rem; }
-.injection-heading h3 { font-size: clamp(1.3rem, 2vw, 1.8rem); color: var(--indigo-950); letter-spacing: -0.03em; }
+/* Inline padding matches .activity-lane (1px border + 16px) so all three sub-section badges line up. */
+.injection-heading { display: flex; align-items: center; gap: 14px; padding: 2px 17px; }
+/* Same sub-section style as the Passport and Calendar lanes: this is part of step 2, not a main step. */
+.injection-heading h3 { font-size: clamp(1.05rem, 1.5vw, 1.3rem); color: var(--indigo-950); letter-spacing: -0.03em; }
 .injection-heading p { margin-top: 4px; color: #565688; font-size: 0.95rem; max-width: 75ch; }
 .injection-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 .injection-step { position: relative; display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px 12px; border: 1px solid var(--border); border-radius: 24px; background: rgb(255 255 255 / 0.65); }
@@ -820,12 +827,6 @@ label.fact-label { cursor: pointer; width: fit-content; }
 .injection-booking.is-confirmed > i, .injection-booking.is-confirmed h4 { color: #078051; }
 .injection-pending { color: #565688; font-size: 0.78rem; line-height: 1.5; }
 
-@media (min-width: 1800px) {
-  .injection-story { margin-inline: -180px; }
-}
-@media (min-width: 1440px) and (max-width: 1799px) {
-  .injection-story { margin-inline: -80px; }
-}
 
 @media (max-width: 1200px) {
   .injection-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -850,7 +851,6 @@ label.fact-label { cursor: pointer; width: fit-content; }
 @media (max-width: 620px) {
   .injection-steps { grid-template-columns: minmax(0, 1fr); }
   .injection-heading { align-items: flex-start; gap: 10px; }
-  .injection-heading > .activity-lane-number { width: 32px; height: 32px; font-size: 1.1rem; }
   .injection-heading h3 { font-size: 1.25rem; }
   .injection-heading p { font-size: 0.86rem; }
   .injection-step { padding: 16px; border-radius: 18px; }
@@ -868,15 +868,13 @@ label.fact-label { cursor: pointer; width: fit-content; }
 }
 
 /* Stage 2: blue agents ask, purple ContextCaps mediates, minimum facts return. */
-.agent-activity {
+/* The panel wraps the activity content only; the step header stays aligned with every other step. */
+.agent-activity .activity-story {
   padding: clamp(16px, 2vw, 24px);
   border: 1px solid var(--border);
   border-radius: 28px;
   background: linear-gradient(145deg, rgb(255 255 255 / 0.75), rgb(246 243 255 / 0.8));
 }
-.agent-activity > .step-head { align-items: center; padding: 4px 4px 8px; }
-.agent-activity .step-num { background: linear-gradient(145deg, #5a2ff0, #26117a); color: white; }
-.agent-activity .step-title h2 { color: var(--indigo-950); }
 .agent-activity .step-title p { max-width: 65ch; color: #565688; }
 .agent-activity .run-controls { justify-content: flex-end; }
 .agent-activity .btn-primary { background: linear-gradient(120deg, #612ff1, #30109d); }
@@ -974,7 +972,6 @@ label.fact-label { cursor: pointer; width: fit-content; }
 }
 
 @media (min-width: 1440px) {
-  .agent-activity { margin-inline: -80px; }
   .activity-lane-head p { font-size: 0.9rem; }
   .activity-lane-content { min-height: 190px; }
   .activity-resource-name { font-size: 0.84rem; }
@@ -982,10 +979,6 @@ label.fact-label { cursor: pointer; width: fit-content; }
   .activity-speech { font-size: 0.95rem; padding: 14px; }
   .activity-request-result, .activity-release-note { font-size: 0.9rem; }
   .activity-request-result code { font-size: 0.82rem; }
-}
-@media (min-width: 1800px) {
-  .agent-activity { margin-inline: -180px; }
-  .agent-activity .step-title h2 { font-size: 2rem; }
 }
 
 @media (max-width: 1050px) {
@@ -998,8 +991,7 @@ label.fact-label { cursor: pointer; width: fit-content; }
   .activity-broker-caption h3 { justify-content: flex-start; }
 }
 @media (max-width: 720px) {
-  .agent-activity { border-radius: 22px; padding: 16px; }
-  .agent-activity > .step-head { gap: 10px; }
+  .agent-activity .activity-story { border-radius: 22px; padding: 16px; }
   .agent-activity .step-aside { width: 100%; }
   .agent-activity .run-controls { justify-content: flex-start; }
   .activity-lane { padding: 16px; border-radius: 18px; }
@@ -1050,8 +1042,6 @@ label.fact-label { cursor: pointer; width: fit-content; }
 .handles code { font-size: 0.78rem; color: var(--text-soft); }
 
 /* Stage 3: the full root capability, a visibly narrower child, and tool checkout. */
-.delegate-checkout .step-num { background: linear-gradient(145deg, #5a2ff0, #26117a); color: #fff; }
-.delegate-checkout .step-title h2 { color: var(--indigo-950); }
 .delegate-checkout > .grid-2 { grid-template-columns: minmax(0, 1.27fr) minmax(0, 0.95fr); gap: 16px; align-items: stretch; }
 .delegate-checkout .tile { box-shadow: none; background: rgb(255 255 255 / 0.78); border-radius: 28px; padding: clamp(18px, 1.8vw, 28px); }
 .stage3-panel-heading { display: flex; align-items: flex-start; gap: 14px; min-height: 78px; }
@@ -1131,12 +1121,6 @@ label.fact-label { cursor: pointer; width: fit-content; }
 .stage3-security-note { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 10px; background: #eeefff; color: #5d5ca0; font-size: 0.72rem; line-height: 1.45; }
 .stage3-security-note i { color: #577ef3; font-size: 1.2rem; flex: none; }
 
-@media (min-width: 1800px) {
-  .delegate-checkout { margin-inline: -350px; }
-}
-@media (min-width: 1440px) and (max-width: 1799px) {
-  .delegate-checkout { margin-inline: -140px; }
-}
 @media (max-width: 1300px) {
   .delegate-checkout > .grid-2 { grid-template-columns: minmax(0, 1fr); }
 }
@@ -1171,8 +1155,6 @@ label.fact-label { cursor: pointer; width: fit-content; }
 .retry-result { display: grid; gap: 12px; }
 
 /* Stage 4: one withdrawal, a visible parent-to-child cascade, then the retry result. */
-.revoke-step .step-num { background: linear-gradient(145deg, #2c168f, #170d66); color: #fff; }
-.revoke-step .step-title h2 { color: var(--indigo-950); }
 .stage4-after { display: grid; gap: 20px; }
 .revoke-step .tile { box-shadow: none; border-radius: 27px; }
 .stage4-before { display: flex; align-items: center; flex-wrap: wrap; gap: 18px 28px; background: rgb(255 255 255 / 0.85); }
@@ -1217,12 +1199,6 @@ label.fact-label { cursor: pointer; width: fit-content; }
 .stage4-verdict.is-allowed > div { border-color: #bce5ce; }
 .stage4-verdict strong { color: var(--indigo-950); font-size: 1.08rem; line-height: 1.3; }
 .stage4-verdict code { color: #7b7c9f; font-size: 0.85rem; overflow-wrap: anywhere; }
-@media (min-width: 1800px) {
-  .revoke-step { margin-inline: -320px; }
-}
-@media (min-width: 1440px) and (max-width: 1799px) {
-  .revoke-step { margin-inline: -140px; }
-}
 @media (max-width: 700px) {
   .stage4-revoked, .stage4-attempt { padding: 20px 16px; }
   .stage4-revoked-top { align-items: flex-start; flex-direction: column; }
