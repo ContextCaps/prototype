@@ -108,8 +108,10 @@
   linkTab();
 
   /* ------------------------------------------------------- docs links */
-  // Set this once the documentation site exists; every [data-docs-link] picks it up.
-  const DOCS_URL = "";
+  // Every [data-docs-link] downloads the technical documentation PDF
+  // (copied from docs/techdoc by scripts/sync-docs.mjs before dev and build).
+  const DOCS_URL = "/docs/ContextCaps-Technical-Documentation.pdf";
+  const DOCS_FILENAME = "ContextCaps-Technical-Documentation.pdf";
 
   let toastTimer;
   const toast = (message) => {
@@ -129,6 +131,8 @@
   document.querySelectorAll("[data-docs-link]").forEach((link) => {
     if (DOCS_URL) {
       link.href = DOCS_URL;
+      link.setAttribute("download", DOCS_FILENAME);
+      link.addEventListener("click", () => toast("Downloading the technical documentation (PDF)."));
       return;
     }
     link.addEventListener("click", (e) => {

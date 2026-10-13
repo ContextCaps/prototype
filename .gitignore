@@ -4,3 +4,6 @@ coverage/
 .env
 *.log
 packages/contracts/artifacts/
+
+# Copied from docs/techdoc by apps/web/scripts/sync-docs.mjs
+apps/web/public/docs/
