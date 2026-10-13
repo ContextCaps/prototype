@@ -12,6 +12,8 @@ export interface BrokerConfig {
   llmPlanner: "off" | "openai";
   llmModel?: string;
   llmEffort?: "low" | "medium" | "high" | "xhigh" | "max";
+  /** Built web app (apps/web/dist) to serve at / and /demo/, so one service hosts the whole product. */
+  staticDir?: string;
 }
 
 const DEV_RECEIPT_KEY = "contextcaps-dev-receipt-key";
@@ -27,7 +29,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BrokerConfig {
     throw new Error("PRINCIPAL_SIGNING=wallet requires CHAIN_PROVIDER=monad");
   }
   return {
-    port: Number(env.BROKER_PORT ?? 8787),
+    // Hosting platforms (Render, Railway, Fly) assign the port through PORT.
+    port: Number(env.BROKER_PORT ?? env.PORT ?? 8787),
     host: env.BROKER_HOST ?? "127.0.0.1",
     chainProvider,
     principalSigning,
@@ -37,6 +40,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BrokerConfig {
     llmPlanner: env.LLM_PLANNER === "openai" ? "openai" : "off",
     llmModel: env.OPENAI_MODEL || undefined,
     llmEffort: parseEffort(env.LLM_EFFORT),
+    staticDir: env.STATIC_DIR || undefined,
   };
 }
 

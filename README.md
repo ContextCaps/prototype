@@ -143,7 +143,21 @@ The demo then offers a **Scripted agent / Real AI (GPT)** toggle. The scripted a
 | Operator (`receiptWriter`) | `0x8332d4eD21e9ceaEb887Ee2e8Ea2F08D26548534` |
 | Manifest | [`packages/contracts/deployments/monad-testnet.json`](packages/contracts/deployments/monad-testnet.json) |
 
-For a deployed web app, build with `VITE_API_BASE=https://<your-broker>/api/v1 npm run build:web` and add the app's origin to the broker's `CORS_ORIGINS`.
+### Hosting the app
+
+The whole product runs as **one service**: the broker serves the built web app (landing page at `/`, demo at `/demo/`) next to its API (`/api/v1`) when `STATIC_DIR` is set, so there is no CORS or proxy to configure. The broker keeps demo state in memory, so it needs an always-on Node host (not serverless functions).
+
+**Render** (blueprint included, [`render.yaml`](render.yaml)):
+
+1. Render dashboard → **New → Blueprint** → select this repository.
+2. Enter the secrets it asks for: `MONAD_PRIVATE_KEY` (the registry operator key), `RECEIPT_HMAC_KEY`, `VITE_PRIVY_APP_ID`, and optionally `OPENAI_API_KEY` and `VITE_ENVIO_GRAPHQL_URL`.
+3. After the first deploy, add the service URL (e.g. `https://contextcaps.onrender.com`) to **Allowed origins** in the Privy dashboard.
+
+Any other Node host works the same way: build with `npm ci --include=dev && npm run build:web`, start with `npm run start:broker`, and set `BROKER_HOST=0.0.0.0`, `STATIC_DIR=apps/web/dist` plus the variables above. The broker listens on the platform's `PORT`.
+
+To host the web app separately instead (e.g. on a CDN), build it with `VITE_API_BASE=https://<your-broker>/api/v1` and add its origin to the broker's `CORS_ORIGINS`.
+
+> **Public demo caveats.** All visitors share one broker, and **Reset demo** clears everyone's state. Each run spends the operator wallet's testnet MON on receipts, and the GPT planner spends OpenAI credits, so keep `LLM_PLANNER=off` publicly or set a low spending limit, and watch the operator balance.
 
 ## Limitations
 
