@@ -1,0 +1,53 @@
+# Render Blueprint: one web service runs the broker and serves the built web
+# app (landing page at /, live demo at /demo/, API at /api/v1) from one URL.
+# Create it from the Render dashboard: New > Blueprint > this repository.
+# Values marked `sync: false` are secrets: Render asks for them on creation.
+services:
+  - type: web
+    name: contextcaps
+    runtime: node
+    # The broker keeps demo state in memory, so it must stay running:
+    # "starter" never sleeps. "free" also works but sleeps after 15 idle
+    # minutes (about a minute to wake, and in-memory demo state resets).
+    plan: starter
+    region: singapore
+    buildCommand: npm ci --include=dev && npm run build:web
+    startCommand: npm run start:broker
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: BROKER_HOST
+        value: 0.0.0.0
+      - key: STATIC_DIR
+        value: apps/web/dist
+
+      # Monad, user wallet signing
+      - key: CHAIN_PROVIDER
+        value: monad
+      - key: PRINCIPAL_SIGNING
+        value: wallet
+      - key: MONAD_RPC_URL
+        value: https://testnet-rpc.monad.xyz
+      - key: CONTEXTCAPS_REGISTRY_ADDRESS
+        value: "0xE366af2032Bc4e581F533806640185a5b0eA3FB2"
+      - key: MONAD_PRIVATE_KEY # broker operator key (the registry's receiptWriter)
+        sync: false
+      - key: RECEIPT_HMAC_KEY
+        sync: false
+      - key: DEMO_MODE
+        value: "true"
+
+      # Optional GPT planner. Spends OpenAI credits for every visitor's run.
+      - key: LLM_PLANNER
+        value: "off"
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # Web app build settings (read by Vite at build time)
+      - key: VITE_WALLET_PROVIDER
+        value: privy
+      - key: VITE_PRIVY_APP_ID
+        sync: false
+      - key: VITE_ENVIO_GRAPHQL_URL
+        sync: false
