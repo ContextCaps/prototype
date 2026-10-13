@@ -3,7 +3,7 @@ import type { CreateMandateRequest, HealthResponse } from "../api/types";
 import type { Authorization } from "../lib/useDemo";
 import { explorerTxUrl, truncate } from "../lib/format";
 import { conflictSignature, detectConflicts, money, parseTask } from "../lib/parseTask";
-import { hasWallet } from "../lib/wallet";
+import { useWalletSession } from "../lib/WalletContext";
 import { StatusBadge } from "./DecisionBadge";
 
 const PRINCIPAL = import.meta.env.VITE_PRINCIPAL || "0xA11CE";
@@ -44,6 +44,7 @@ interface Props {
  * exists every input is locked, because changing it means a new authorization.
  */
 export function AuthorizeStep({ health, auth, busy, walletMode, account, connecting, progress, onConnect, onAuthorize }: Props) {
+  const wallet = useWalletSession();
   const [description, setDescription] = useState(GOLDEN_TASK);
   const [destination, setDestination] = useState("Singapore");
   const [budgetText, setBudgetText] = useState("700");
@@ -65,6 +66,7 @@ export function AuthorizeStep({ health, auth, busy, walletMode, account, connect
   const principal = walletMode ? account : PRINCIPAL;
   const principalMismatch = onMonad && !walletMode && !/^0x[0-9a-fA-F]{40}$/.test(PRINCIPAL);
   const needsWallet = walletMode && !account;
+  const walletUnavailable = wallet.kind === "privy" && (!wallet.available || !walletMode);
   const incomplete = !destination.trim() || budgetUsd === null;
 
   const useTaskValues = () => {
@@ -226,11 +228,15 @@ export function AuthorizeStep({ health, auth, busy, walletMode, account, connect
           </p>
         )}
 
+        {wallet.kind === "privy" && health && !walletMode && (
+          <p className="callout callout-warn">This broker is not accepting user-wallet signatures. Start the wallet-enabled broker to authorize with Privy.</p>
+        )}
+
         {walletMode && !locked && (
           <p className="wallet-line">
             <i className="ph ph-wallet" aria-hidden="true" />
             {account ? (
-              <>Signing as <code title={account}>{truncate(account, 6, 4)}</code>. Your wallet authorizes and revokes; the broker never holds your key.</>
+              <>Signing as <code title={account}>{truncate(account, 6, 4)}</code>{wallet.kind === "privy" ? " with Privy" : ""}. Your wallet authorizes and revokes; the broker never holds your key. {wallet.kind === "privy" && <a href="https://faucet.monad.xyz/" target="_blank" rel="noreferrer">Get testnet MON for gas.</a>}</>
             ) : (
               <>You sign the grant with your own wallet. The broker never holds your key.</>
             )}
@@ -243,15 +249,15 @@ export function AuthorizeStep({ health, auth, busy, walletMode, account, connect
             Authorized and locked. To change the task, destination or budget, reset the demo and authorize again.
           </p>
         ) : needsWallet ? (
-          hasWallet() ? (
-            <button className="btn btn-primary btn-block" type="button" onClick={onConnect} disabled={connecting}>
+          wallet.available ? (
+            <button className="btn btn-primary btn-block" type="button" onClick={onConnect} disabled={connecting || !wallet.ready}>
               <i className="ph ph-wallet" aria-hidden="true" />
-              {connecting ? "Connecting…" : "Connect wallet"}
+              {connecting || !wallet.ready ? "Preparing wallet…" : wallet.kind === "privy" ? (wallet.authenticated ? "Create Privy wallet" : "Log in with Privy") : "Connect wallet"}
             </button>
           ) : (
             <p className="callout callout-warn">
               <i className="ph ph-warning" aria-hidden="true" />
-              Install MetaMask to authorize on Monad.
+              {wallet.kind === "privy" ? "Configure Privy to log in and authorize on Monad." : "Install MetaMask to authorize on Monad."}
             </p>
           )
         ) : (
@@ -259,7 +265,7 @@ export function AuthorizeStep({ health, auth, busy, walletMode, account, connect
             <button
               className="btn btn-primary btn-block"
               type="submit"
-              disabled={busy || !health || unresolved || incomplete}
+              disabled={busy || !health || unresolved || incomplete || principalMismatch || walletUnavailable || !wallet.ready}
               aria-describedby={unresolved ? "conflict-title" : undefined}
             >
               {busy ? "Authorizing…" : onMonad ? "Authorize on Monad" : "Authorize task"}

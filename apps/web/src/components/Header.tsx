@@ -1,4 +1,6 @@
 import type { HealthResponse } from "../api/types";
+import type { WalletSession } from "../lib/WalletContext";
+import { truncate } from "../lib/format";
 
 interface HeaderProps {
   health: HealthResponse | null;
@@ -6,9 +8,13 @@ interface HeaderProps {
   resetting: boolean;
   onReset: () => void;
   onRecheck: () => void;
+  wallet: WalletSession;
+  walletBusy: boolean;
+  onConnect: () => void;
+  onDisconnect: () => void;
 }
 
-export function Header({ health, healthError, resetting, onReset, onRecheck }: HeaderProps) {
+export function Header({ health, healthError, resetting, onReset, onRecheck, wallet, walletBusy, onConnect, onDisconnect }: HeaderProps) {
   const network = health ? (health.provider === "monad" ? "Monad Testnet" : "Mock trust layer") : null;
   return (
     <header className="site-header">
@@ -18,6 +24,14 @@ export function Header({ health, healthError, resetting, onReset, onRecheck }: H
           <span>ContextCaps</span>
         </a>
         <div className="nav-actions">
+          {wallet.kind === "privy" && (
+            <div className="wallet-nav">
+              {wallet.account && <span className="pill pill-sm" title={wallet.account}>Privy · {truncate(wallet.account, 6, 4)}</span>}
+              <button type="button" className="btn btn-ghost" disabled={walletBusy || !wallet.ready || !wallet.available} onClick={wallet.authenticated ? onDisconnect : onConnect}>
+                {wallet.authenticated ? "Log out" : "Log in with Privy"}
+              </button>
+            </div>
+          )}
           {health ? (
             <span className="pill pill-sm" title="Broker connection">
               <span className={`pill-dot${health.provider === "monad" ? "" : " is-mock"}`} aria-hidden="true" />

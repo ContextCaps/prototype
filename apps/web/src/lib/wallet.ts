@@ -5,7 +5,7 @@ import type { WalletSignRequest } from "../api/types";
  * principal's own wallet signs root registration and revocation; the broker
  * only prepares the calldata and verifies the result on-chain.
  */
-interface Eip1193Provider {
+export interface Eip1193Provider {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
   on?(event: string, listener: (...args: unknown[]) => void): void;
   removeListener?(event: string, listener: (...args: unknown[]) => void): void;
@@ -29,7 +29,7 @@ const RECEIPT_TIMEOUT_MS = 120_000;
 
 export const hasWallet = (): boolean => typeof window !== "undefined" && !!window.ethereum;
 
-function wallet(): Eip1193Provider {
+export function injectedProvider(): Eip1193Provider {
   if (!window.ethereum) throw new Error("No wallet found. Install MetaMask to sign on Monad.");
   return window.ethereum;
 }
@@ -44,7 +44,7 @@ function walletError(e: unknown): Error {
 
 export async function connectWallet(): Promise<string> {
   try {
-    const accounts = (await wallet().request({ method: "eth_requestAccounts" })) as string[];
+    const accounts = (await injectedProvider().request({ method: "eth_requestAccounts" })) as string[];
     if (!accounts[0]) throw new Error("No wallet account was shared.");
     return accounts[0];
   } catch (e) {
@@ -61,8 +61,8 @@ export function watchAccount(onChange: (account: string | undefined) => void): (
   return () => eth.removeListener?.("accountsChanged", listener);
 }
 
-async function ensureChain(chainId: number): Promise<void> {
-  const eth = wallet();
+async function ensureChain(eth: Eip1193Provider, chainId: number): Promise<void> {
+  if (chainId !== MONAD_TESTNET.chainId) throw new Error("Only Monad Testnet signing is supported.");
   const hexId = `0x${chainId.toString(16)}`;
   if ((await eth.request({ method: "eth_chainId" })) === hexId) return;
   try {
@@ -71,16 +71,20 @@ async function ensureChain(chainId: number): Promise<void> {
     if ((e as { code?: number }).code !== 4902 || chainId !== MONAD_TESTNET.chainId) throw walletError(e);
     await eth.request({ method: "wallet_addEthereumChain", params: [{ ...MONAD_TESTNET, chainId: hexId }] });
   }
+  if ((await eth.request({ method: "eth_chainId" })) !== hexId) throw new Error("Switch your wallet to Monad Testnet before signing.");
 }
 
 export type TxStage = "sign" | "confirm";
 
 /** Asks the wallet to sign and send `req`, then waits until the tx is mined successfully. Returns its hash. */
-export async function sendAndConfirm(from: string, req: WalletSignRequest, onStage: (stage: TxStage) => void): Promise<string> {
-  const eth = wallet();
+export async function sendAndConfirm(from: string, req: WalletSignRequest, onStage: (stage: TxStage) => void, eth: Eip1193Provider = injectedProvider()): Promise<string> {
   let hash: string;
   try {
-    await ensureChain(req.chainId);
+    await ensureChain(eth, req.chainId);
+    const accounts = await eth.request({ method: "eth_accounts" }) as string[];
+    if (!accounts.some((account) => account.toLowerCase() === from.toLowerCase())) {
+      throw new Error("The signing wallet changed. Reconnect the wallet that authorized this task.");
+    }
     onStage("sign");
     hash = (await eth.request({ method: "eth_sendTransaction", params: [{ from, to: req.to, data: req.data }] })) as string;
   } catch (e) {

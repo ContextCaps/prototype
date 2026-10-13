@@ -5,9 +5,10 @@ import "@phosphor-icons/web/bold";
 import "@phosphor-icons/web/fill";
 import "./styles.css";
 import { App } from "./App";
+import { WalletProvider } from "./lib/WalletProvider";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <WalletProvider><App /></WalletProvider>
   </StrictMode>,
 );
