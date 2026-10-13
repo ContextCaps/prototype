@@ -1,0 +1,23 @@
+{
+  "name": "contextcaps-indexer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Envio HyperIndex indexer for the ContextCaps CapabilityRegistry on Monad Testnet",
+  "scripts": {
+    "codegen": "envio codegen",
+    "dev": "envio dev",
+    "start": "envio start",
+    "stop": "envio stop"
+  },
+  "dependencies": {
+    "envio": "3.13.0"
+  },
+  "packageManager": "pnpm@10.32.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "~5.9.3"
+  }
+}

@@ -1,0 +1,51 @@
+# On-chain view of ContextCaps authorization state. Everything here comes from
+# CapabilityRegistry events: opaque ids, addresses, hashes, status and
+# timestamps only. No private data is (or can be) indexed.
+
+# One registered capability: a user-signed root grant or a delegated child.
+type Capability {
+  id: ID!                     # bytes32 capability id (keccak256 of the canonical "cap_..." id)
+  principal: String!          # lowercase address of the user who owns the grant
+  agentIdHash: String!        # bytes32 agent id as stored on-chain
+  agent: String!              # "travel-agent" | "hotel-agent" | "unknown"
+  policyHash: String!         # commitment to the broker-side policy
+  parent: Capability          # set for delegated children
+  depth: Int!                 # 0 for a root grant
+  expiresAt: BigInt!          # unix seconds
+  status: String!             # "ACTIVE" | "REVOKED" | "COMPLETED" (own status; ancestors revoke children on-chain too)
+  delegationConfirmed: Boolean!
+  registeredAt: BigInt!       # block timestamp, unix seconds
+  registeredBlock: Int!
+  registeredTx: String!
+  revokedAt: BigInt
+  revokedTx: String
+  completedAt: BigInt
+  receiptCount: Int!
+  denyCount: Int!
+  children: [Capability!]! @derivedFrom(field: "parent")
+  receipts: [Receipt!]! @derivedFrom(field: "capability")
+}
+
+# One anchored disclosure decision.
+type Receipt {
+  id: ID!                     # bytes32 receipt id
+  capability: Capability!
+  requestHash: String!        # sha256 of the canonical request
+  resultHash: String!         # keyed commitment to the result (zero hash for denials)
+  decisionCode: Int!          # 0 DENY, 1 DERIVE, 2 SELECT, 3 TOOL_BOUND
+  decision: String!
+  anchoredAt: BigInt!
+  anchoredBlock: Int!
+  txHash: String!
+}
+
+# Every lifecycle transition, in order, for timelines and audits.
+type LifecycleEvent {
+  id: ID!                     # "<txHash>-<logIndex>"
+  kind: String!               # REGISTERED | DELEGATION_CONFIRMED | REVOKED | COMPLETED
+  capability: Capability!
+  principal: String
+  timestamp: BigInt!
+  blockNumber: Int!
+  txHash: String!
+}

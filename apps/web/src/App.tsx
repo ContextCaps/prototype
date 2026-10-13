@@ -1,4 +1,5 @@
 import { AgentActivity } from "./components/AgentActivity";
+import { ChainHistory } from "./components/ChainHistory";
 import { AuditLog } from "./components/AuditLog";
 import { AuthorizeStep } from "./components/AuthorizeStep";
 import { CheckoutCard } from "./components/CheckoutCard";
@@ -131,6 +132,7 @@ export function App() {
 
         <Step n={5} title="Audit & proof" lead="Receipts hold hashes and commitments only, never private values." locked={!audit && "Receipts appear once the task is authorized."}>
           {audit && <AuditLog audit={audit} provider={provider} />}
+          {auth && provider === "monad" && <ChainHistory principal={auth.capability.principal} />}
         </Step>
       </main>
 

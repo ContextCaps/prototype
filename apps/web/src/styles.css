@@ -1314,3 +1314,27 @@ label.fact-label { cursor: pointer; width: fit-content; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* ---------------------------------------------- on-chain history (Envio) */
+
+.chain-history { margin-top: 16px; }
+.chain-list { display: grid; gap: 10px; }
+.chain-list > li { display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--radius-inner); border: 1px solid var(--border); background: rgb(255 255 255 / 0.7); }
+.chain-list > li.is-child { margin-left: 28px; border-style: dashed; }
+.chain-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.chain-agent { font-weight: 700; color: var(--indigo-950); }
+.chain-tx { margin-left: auto; color: var(--text-soft); }
+.chain-tx a { text-decoration: none; }
+.chain-receipts { display: flex; flex-wrap: wrap; gap: 6px; }
+.chain-receipt {
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  font: 600 0.7rem/1.2 var(--mono);
+  letter-spacing: 0.03em;
+  text-decoration: none;
+  background: var(--violet-100);
+  color: var(--indigo-900);
+}
+.chain-receipt.is-deny { background: var(--deny-bg); color: var(--deny); }
+.status-revoked { background: var(--deny-bg); color: var(--deny); }
+.status-completed { background: var(--violet-100); color: var(--indigo-800); }

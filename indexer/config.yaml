@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+# Envio HyperIndex for the ContextCaps CapabilityRegistry on Monad Testnet.
+# Indexes the full authorization lifecycle (grants, delegation links,
+# revocation, completion) and every anchored disclosure receipt.
+name: contextcaps-indexer
+description: ContextCaps capability lifecycle and disclosure receipts on Monad Testnet
+
+contracts:
+  - name: CapabilityRegistry
+    events:
+      - event: "CapabilityRegistered(bytes32 indexed capabilityId, address indexed principal, bytes32 indexed agentId, bytes32 policyHash, bytes32 parentCapabilityId, uint64 expiresAt)"
+      - event: "CapabilityRevoked(bytes32 indexed capabilityId, address indexed principal)"
+      - event: "CapabilityCompleted(bytes32 indexed capabilityId)"
+      - event: "DelegationRegistered(bytes32 indexed parentCapabilityId, bytes32 indexed childCapabilityId, bytes32 indexed childAgentId)"
+      - event: "DisclosureReceiptAnchored(bytes32 indexed capabilityId, bytes32 indexed receiptId, bytes32 requestHash, bytes32 resultHash, uint8 decisionCode)"
+
+chains:
+  - id: 10143 # Monad Testnet
+    # Deployment block of the registry (packages/contracts/deployments/monad-testnet.json).
+    start_block: 70369174
+    contracts:
+      - name: CapabilityRegistry
+        address: "0xE366af2032Bc4e581F533806640185a5b0eA3FB2"
