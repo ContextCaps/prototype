@@ -8,6 +8,10 @@ export interface WalletSession {
   authenticated: boolean;
   account: string | null;
   error?: string;
+  wallets?: { address: string; label: string }[];
+  selectWallet?: (address: string) => void;
+  connectExternal?: () => void;
+  createEmbedded?: () => Promise<void>;
   connect(): Promise<void>;
   disconnect?: () => Promise<void>;
   getProvider(): Promise<Eip1193Provider>;

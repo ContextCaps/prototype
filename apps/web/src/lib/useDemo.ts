@@ -105,6 +105,7 @@ export function useDemo() {
 
   const connect = () => act("connect", async () => { await wallet.connect(); return {}; });
   const disconnect = () => act("connect", async () => { await wallet.disconnect?.(); return {}; });
+  const createEmbedded = () => act("connect", async () => { await wallet.createEmbedded?.(); return {}; });
 
   const requirePrincipal = (principal: string) => {
     if (!wallet.ready || !wallet.account) throw new Error("Connect your wallet first.");
@@ -176,5 +177,5 @@ export function useDemo() {
       return { ...EMPTY };
     });
 
-  return { state: { ...state, account: wallet.account }, wallet, walletMode, connect, disconnect, authorize, runAgent, revoke, retryAfterRevoke, reset, checkHealth };
+  return { state: { ...state, account: wallet.account }, wallet, walletMode, connect, disconnect, createEmbedded, authorize, runAgent, revoke, retryAfterRevoke, reset, checkHealth };
 }

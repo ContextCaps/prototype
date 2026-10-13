@@ -236,7 +236,7 @@ export function AuthorizeStep({ health, auth, busy, walletMode, account, connect
           <p className="wallet-line">
             <i className="ph ph-wallet" aria-hidden="true" />
             {account ? (
-              <>Signing as <code title={account}>{truncate(account, 6, 4)}</code>{wallet.kind === "privy" ? " with Privy" : ""}. Your wallet authorizes and revokes; the broker never holds your key. {wallet.kind === "privy" && <a href="https://faucet.monad.xyz/" target="_blank" rel="noreferrer">Get testnet MON for gas.</a>}</>
+              <>Signing as <code title={account}>{truncate(account, 6, 4)}</code>{wallet.kind === "privy" ? ` via Privy (${wallet.wallets?.find((item) => item.address.toLowerCase() === account.toLowerCase())?.label ?? "selected wallet"})` : ""}. Your wallet authorizes and revokes; the broker never holds your key. {wallet.kind === "privy" && <a href="https://faucet.monad.xyz/" target="_blank" rel="noreferrer">Get testnet MON for gas.</a>}</>
             ) : (
               <>You sign the grant with your own wallet. The broker never holds your key.</>
             )}
@@ -249,10 +249,12 @@ export function AuthorizeStep({ health, auth, busy, walletMode, account, connect
             Authorized and locked. To change the task, destination or budget, reset the demo and authorize again.
           </p>
         ) : needsWallet ? (
-          wallet.available ? (
+          wallet.kind === "privy" && wallet.authenticated ? (
+            <p className="callout callout-warn">Choose your signing wallet in the header. You can connect MetaMask or use an embedded wallet.</p>
+          ) : wallet.available ? (
             <button className="btn btn-primary btn-block" type="button" onClick={onConnect} disabled={connecting || !wallet.ready}>
               <i className="ph ph-wallet" aria-hidden="true" />
-              {connecting || !wallet.ready ? "Preparing wallet…" : wallet.kind === "privy" ? (wallet.authenticated ? "Create Privy wallet" : "Log in with Privy") : "Connect wallet"}
+              {connecting || !wallet.ready ? "Preparing wallet…" : wallet.kind === "privy" ? "Log in with email or wallet" : "Connect wallet"}
             </button>
           ) : (
             <p className="callout callout-warn">

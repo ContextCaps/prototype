@@ -12,9 +12,10 @@ interface HeaderProps {
   walletBusy: boolean;
   onConnect: () => void;
   onDisconnect: () => void;
+  onCreateEmbedded: () => void;
 }
 
-export function Header({ health, healthError, resetting, onReset, onRecheck, wallet, walletBusy, onConnect, onDisconnect }: HeaderProps) {
+export function Header({ health, healthError, resetting, onReset, onRecheck, wallet, walletBusy, onConnect, onDisconnect, onCreateEmbedded }: HeaderProps) {
   const network = health ? (health.provider === "monad" ? "Monad Testnet" : "Mock trust layer") : null;
   return (
     <header className="site-header">
@@ -26,7 +27,16 @@ export function Header({ health, healthError, resetting, onReset, onRecheck, wal
         <div className="nav-actions">
           {wallet.kind === "privy" && (
             <div className="wallet-nav">
-              {wallet.account && <span className="pill pill-sm" title={wallet.account}>Privy · {truncate(wallet.account, 6, 4)}</span>}
+              {wallet.authenticated && (
+                <>
+                  <select aria-label="Signing wallet" value={wallet.account ?? ""} onChange={(event) => wallet.selectWallet?.(event.target.value)} disabled={walletBusy || !wallet.ready}>
+                    <option value="">Select signing wallet</option>
+                    {wallet.wallets?.map((item) => <option key={item.address} value={item.address}>{item.label} · {truncate(item.address, 6, 4)}</option>)}
+                  </select>
+                  <button type="button" className="btn btn-ghost" onClick={wallet.connectExternal} disabled={walletBusy || !wallet.ready}>Connect wallet</button>
+                  <button type="button" className="btn btn-ghost" onClick={onCreateEmbedded} disabled={walletBusy || !wallet.ready}>Use embedded wallet</button>
+                </>
+              )}
               <button type="button" className="btn btn-ghost" disabled={walletBusy || !wallet.ready || !wallet.available} onClick={wallet.authenticated ? onDisconnect : onConnect}>
                 {wallet.authenticated ? "Log out" : "Log in with Privy"}
               </button>
