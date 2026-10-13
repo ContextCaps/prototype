@@ -19,6 +19,7 @@ export interface IndexedCapability {
   agent: string;
   status: "ACTIVE" | "REVOKED" | "COMPLETED";
   depth: number;
+  parent_id: string | null;
   expiresAt: string;
   registeredAt: string;
   registeredTx: string;
@@ -31,7 +32,7 @@ export interface IndexedCapability {
 const HISTORY_QUERY = `
   query History($principal: String!) {
     Capability(where: { principal: { _eq: $principal } }, order_by: { registeredBlock: desc }, limit: 12) {
-      id agent status depth expiresAt registeredAt registeredTx revokedTx receiptCount denyCount
+      id agent status depth parent_id expiresAt registeredAt registeredTx revokedTx receiptCount denyCount
       receipts(order_by: { anchoredBlock: asc }) { id decision txHash anchoredAt }
     }
   }
@@ -46,5 +47,21 @@ export async function fetchHistory(principal: string): Promise<IndexedCapability
   if (!res.ok) throw new Error(`Indexer returned ${res.status}.`);
   const json = (await res.json()) as { data?: { Capability?: IndexedCapability[] }; errors?: Array<{ message: string }> };
   if (json.errors?.length) throw new Error(json.errors[0]!.message);
-  return json.data?.Capability ?? [];
+  return groupUnderParents(json.data?.Capability ?? []);
+}
+
+/** Newest grants first, each delegated child listed directly under its parent. */
+function groupUnderParents(rows: IndexedCapability[]): IndexedCapability[] {
+  const ids = new Set(rows.map((row) => row.id));
+  const childrenOf = new Map<string, IndexedCapability[]>();
+  for (const row of rows) {
+    if (row.parent_id && ids.has(row.parent_id)) childrenOf.set(row.parent_id, [...(childrenOf.get(row.parent_id) ?? []), row]);
+  }
+  const ordered: IndexedCapability[] = [];
+  const visit = (row: IndexedCapability) => {
+    ordered.push(row);
+    for (const child of childrenOf.get(row.id) ?? []) visit(child);
+  };
+  for (const row of rows) if (!row.parent_id || !ids.has(row.parent_id)) visit(row);
+  return ordered;
 }

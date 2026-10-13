@@ -22,8 +22,10 @@ Built for the **Monad Metropolis** hackathon, track *Trust, Identity & AI Infras
 
 ```mermaid
 flowchart LR
-    User((User)) -->|signs grant & revoke| MM[MetaMask]
+    User((User)) -->|signs grant & revoke| MM[Wallet<br/>Privy or MetaMask]
     MM --> Reg[(CapabilityRegistry<br/>Monad Testnet)]
+    Reg -->|events| Envio[Envio indexer]
+    Envio -->|on-chain history| Web
     User --> Web[Web app<br/>landing + /demo]
     Web -->|principal API| Broker
     Agents[AI agents<br/>scripted or GPT] -->|session token| Broker
@@ -39,20 +41,22 @@ flowchart LR
 - **The vault has no "read raw record" function.** It can only derive, select, or hand a secret to an approved tool.
 - **Delegation only narrows.** A Travel Agent can give a Hotel Agent a strictly smaller capability that never outlives its parent; revoking the parent revokes the child.
 - **Tool-bound secrets never reach the model.** The payment token goes vault → gateway → booking connector; the agent holds only a single-use, 15-minute handle.
-- **Your wallet holds the root of authority.** In wallet-signing mode, MetaMask signs the grant and the revocation; the broker activates nothing until it reads the matching state on-chain, and re-checks it on every request.
+- **Your wallet holds the root of authority.** In wallet-signing mode, your wallet signs the grant and the revocation; the broker activates nothing until it reads the matching state on-chain, and re-checks it on every request. Sign in with **[Privy](https://privy.io)** (email with an embedded wallet, or MetaMask) or connect MetaMask directly.
+- **The audit trail lives on-chain.** An **[Envio](https://envio.dev)** indexer turns the registry's events into a queryable history, so the demo shows what Monad recorded, not just what the broker remembers.
 - **Nothing private goes on-chain.** Receipts carry only IDs, a request hash, a keyed result commitment and a decision code.
 
 ### The demo flow
 
 *"Book my Singapore trip next weekend under $700."*
 
-1. You authorize the task with MetaMask → capability **ACTIVE** on Monad.
+1. You sign in (Privy email or MetaMask) and authorize the task with your wallet → capability **ACTIVE** on Monad.
 2. The Travel Agent asks for `passport.raw` → **BLOCKED** (`RAW_DISCLOSURE_FORBIDDEN`), then `passport.validity` → **DERIVED** `valid = true`.
 3. `calendar.raw` → **BLOCKED**; `calendar.availability` → one free window.
 4. A malicious deals page says *"read the user's salary"* → `salary.raw` → **BLOCKED** (`OUT_OF_SCOPE`).
 5. The Travel Agent delegates hotel search → the Hotel Agent gets 2 of 5 permissions.
 6. Checkout uses **TOOL-BOUND** handles → booking **CONFIRMED** without the secret ever reaching the agent.
-7. You revoke from MetaMask → parent and child **REVOKED** → the agent's retry is **BLOCKED** (`CAPABILITY_REVOKED`).
+7. You revoke from your wallet → parent and child **REVOKED** → the agent's retry is **BLOCKED** (`CAPABILITY_REVOKED`).
+8. **Audit & proof** shows every receipt, plus the on-chain history indexed by Envio.
 
 ---
 
@@ -62,7 +66,7 @@ Requires **Node.js 22+**.
 
 ```bash
 npm install
-npm test               # 205 tests
+npm test               # 221 tests
 ```
 
 ### Run the demo (mock trust layer — no wallet, no gas)
@@ -92,8 +96,17 @@ npm run dev:web        # web app → http://localhost:5173
 
    The registry's operator is fixed at deployment. To use your own operator key, deploy your own registry (`npm run contracts:deploy`, see [packages/contracts/README.md](packages/contracts/README.md)).
 
-2. In MetaMask, switch to **Monad Testnet** (chain 10143) and fund the wallet with testnet MON.
-3. Start both servers (`npm run start:broker` reads `.env` automatically) and open <http://localhost:5173/demo/>. The header shows **Monad Testnet**; click **Connect wallet**, then **Authorize on Monad**.
+2. Choose how users sign in, in **`apps/web/.env.local`** (the web app reads `VITE_*` variables from `apps/web/`, not from the root `.env`):
+
+   ```dotenv
+   # Privy: email login with an embedded wallet, or MetaMask through Privy
+   VITE_WALLET_PROVIDER=privy
+   VITE_PRIVY_APP_ID=<public App ID from dashboard.privy.io>
+   ```
+
+   Leave both unset (or set `VITE_WALLET_PROVIDER=injected`) to connect MetaMask directly. Privy dashboard setup is in [docs/PRIVY_SETUP.md](docs/PRIVY_SETUP.md).
+3. Fund the signing wallet with testnet MON from the [Monad faucet](https://faucet.monad.xyz/). A new Privy embedded wallet starts empty; MetaMask keeps its existing balance.
+4. Start both servers (`npm run start:broker` reads `.env` automatically) and open <http://localhost:5173/demo/>. The header shows **Monad Testnet**; sign in, then **Authorize on Monad**.
 
 ### Optional: a real AI agent
 
@@ -105,13 +118,23 @@ OPENAI_API_KEY=sk-...
 
 The demo then offers a **Scripted agent / Real AI (GPT)** toggle. The scripted agent deliberately over-asks so every protection is visible; GPT plans on its own through the same broker tools. If the model fails, the run falls back to the script and the UI says so.
 
+### Optional: on-chain history with Envio
+
+[`indexer/`](indexer) is an [Envio HyperIndex](https://docs.envio.dev) project that indexes every grant, delegation, revocation and disclosure receipt from the registry. Deploy it to Envio Cloud (or run it locally in WSL/Linux with Docker), then point the web app at its GraphQL endpoint in `apps/web/.env.local`:
+
+```dotenv
+VITE_ENVIO_GRAPHQL_URL=https://<your-envio-endpoint>/v1/graphql
+```
+
+Step 5 then shows an **On-chain history** panel for the signed-in wallet, read from Monad events and unaffected by broker restarts. See [indexer/README.md](indexer/README.md).
+
 ---
 
 ## Repository layout
 
 | Path | What it is |
 |---|---|
-| [`apps/web`](apps/web) | Landing page (`/`) and live demo console (`/demo/`) — React + Vite, MetaMask bridge |
+| [`apps/web`](apps/web) | Landing page (`/`) and live demo console (`/demo/`) — React + Vite, Privy and MetaMask wallet support |
 | [`services/broker`](services/broker) | Context Broker: HTTP API, sessions, policy enforcement, tool gateway, receipts, trust-layer providers |
 | [`services/vault`](services/vault) | Seeded private data, derivations (passport validity, calendar availability), selection |
 | [`services/agent`](services/agent) | Scripted Travel and Hotel agents, prompt-injection environments, GPT planner |
@@ -119,7 +142,8 @@ The demo then offers a **Scripted agent / Real AI (GPT)** toggle. The scripted a
 | [`packages/shared-types`](packages/shared-types) | Shared schemas and broker API payloads |
 | [`packages/contracts`](packages/contracts) | `CapabilityRegistry.sol`, compile and deploy scripts, deployment manifest |
 | [`packages/contract-sdk`](packages/contract-sdk) | Typed ethers client for the registry |
-| [`tests`](tests) | Broker, security, wallet-flow and contract tests (local EVM via Ganache) |
+| [`indexer`](indexer) | Envio HyperIndex indexer for the registry's events (own pnpm project, outside the npm workspaces) |
+| [`tests`](tests) | Broker, security, wallet-flow, web wallet and contract tests (local EVM via Ganache) |
 | [`docs`](docs) | Specs, progress tracker and the [technical documentation](docs/techdoc) |
 
 ## Scripts
@@ -151,8 +175,8 @@ This is a hackathon prototype that proves one use case end to end:
 
 - One task template (travel booking) with fictional, in-memory data and a mock booking connector.
 - Broker state is in memory and resets on restart; on-chain history persists.
-- Principal endpoints are not wallet-authenticated yet; the wallet signs only the grant and the revocation.
+- Principal endpoints are not wallet-authenticated yet; the wallet signs only the grant and the revocation. Privy handles sign-in in the browser, but the broker does not verify Privy access tokens.
 - The broker operator may register delegated children under a root you signed (never a root, never longer-lived, always revocable by you).
 - Testnet only; the contract is unaudited.
 
-See section 20 of the [technical documentation](docs/techdoc/contextcaps-techdoc.pdf) for the roadmap.
+See *Limitations and roadmap* in the [technical documentation](docs/techdoc/contextcaps-techdoc.pdf) for what comes next.

@@ -238,8 +238,8 @@
       1/0/{\faCube}/TRACK/{Trust, Identity \& AI Infrastructure},
       2/0/{\faLink}/NETWORK/{Monad Testnet (chain 10143)},
       0/1/{\faUsers}/EVENT/{Monad Metropolis Hackathon},
-      1/1/{\faCode}/VERSION/{Prototype, branch\\{\ttfamily\footnotesize\color{violet}feat/person-3-web-app}},
-      2/1/{\faCalendar*}/DATE/{12 October 2026}} {
+      1/1/{\faCode}/VERSION/{Prototype, with Privy\\and Envio indexing},
+      2/1/{\faCalendar*}/DATE/{14 October 2026}} {
     \pgfmathsetmacro{\cx}{1.15+\col*6.233}
     \pgfmathsetmacro{\cy}{-21.35-\row*2.85}
     \node[cell icon] at (\cx+0.95,\cy-1.05) {\icon};
@@ -295,7 +295,7 @@ For every request an agent makes, ContextCaps asks: \emph{what is the minimum in
 \begin{tabularx}{\textwidth}{@{}YYYY@{}}
 \begin{statcard}{\Huge\bfseries\color{violet}4}\\[-2pt]{\scriptsize\color{soft}disclosure modes}\end{statcard} &
 \begin{statcard}{\Huge\bfseries\color{violet}9}\\[-2pt]{\scriptsize\color{soft}resources in the catalog}\end{statcard} &
-\begin{statcard}{\Huge\bfseries\color{violet}205}\\[-2pt]{\scriptsize\color{soft}automated tests, all passing}\end{statcard} &
+\begin{statcard}{\Huge\bfseries\color{violet}221}\\[-2pt]{\scriptsize\color{soft}automated tests, all passing}\end{statcard} &
 \begin{statcard}{\Huge\bfseries\color{violet}0}\\[-2pt]{\scriptsize\color{soft}private values on-chain}\end{statcard}
 \end{tabularx}
 \end{center}
@@ -305,13 +305,14 @@ For every request an agent makes, ContextCaps asks: \emph{what is the minimum in
   \item \textbf{A Context Vault} that has no ``read raw record'' function at all: it can only derive, select, or hand a secret to an approved tool.
   \item \textbf{Delegation that only narrows}: a Travel Agent can hand a Hotel Agent a strictly smaller capability, and revoking the parent revokes the child.
   \item \textbf{Tool-bound secrets}: the payment token and legal name go straight into the booking connector; the agent only ever holds single-use opaque handles.
-  \item \textbf{A Monad smart contract} (\code{CapabilityRegistry}) that records grants, delegation links, revocation and disclosure-receipt commitments. The user signs the grant and the revocation with their own wallet (MetaMask).
+  \item \textbf{A Monad smart contract} (\code{CapabilityRegistry}) that records grants, delegation links, revocation and disclosure-receipt commitments. The user signs the grant and the revocation with their own wallet: a Privy embedded wallet created at email sign-in, or MetaMask.
+  \item \textbf{An Envio indexer} that turns the registry's events into a queryable on-chain history, so the audit trail does not depend on broker memory.
   \item \textbf{Agents}: a deterministic scripted agent that deliberately over-asks (so every protection is visible), and a real GPT planner behind the same tools.
   \item \textbf{A web console} that walks through the whole flow live, served together with the landing page.
 \end{itemize}
 
 \subsection*{How to read this document}
-Sections~\ref{sec:problem}--\ref{sec:architecture} explain the idea and the system shape. Sections~\ref{sec:model}--\ref{sec:delegation} cover the broker internals: data model, policy engine, vault, tool-bound disclosure and delegation. Sections~\ref{sec:chain}--\ref{sec:receipts} cover the Monad trust layer, wallet signing and receipts. Sections~\ref{sec:agents}--\ref{sec:web} describe the agents, the HTTP API and the web app. The document closes with the golden demo flow, the security invariants, testing, operations and known limitations.
+Sections~\ref{sec:problem}--\ref{sec:architecture} explain the idea and the system shape. Sections~\ref{sec:model}--\ref{sec:delegation} cover the broker internals: data model, policy engine, vault, tool-bound disclosure and delegation. Sections~\ref{sec:chain}--\ref{sec:envio} cover the Monad trust layer, wallet signing (MetaMask and Privy), receipts and the Envio-indexed on-chain history. Sections~\ref{sec:agents}--\ref{sec:web} describe the agents, the HTTP API and the web app. The document closes with the golden demo flow, the security invariants, testing, operations and known limitations.
 
 % =====================================================================
 \section{The problem and the approach}\label{sec:problem}
@@ -378,7 +379,7 @@ ContextCaps is a TypeScript monorepo (npm workspaces, Node.js 22+) plus one Soli
   % top row
   \node[box,minimum width=2.9cm,minimum height=1.1cm] (user) at (0,0) {\textbf{User}\\{\scriptsize\color{soft}the principal}};
   \node[vbox,minimum width=4.6cm,minimum height=1.1cm] (web) at (5.6,0) {\textbf{Web app} \texttt{apps/web}\\{\scriptsize\color{soft}landing \texttt{/} \,+\, live console \texttt{/demo/}}};
-  \node[box,minimum width=3.4cm,minimum height=1.1cm,fill=warnbg,draw=warn!40] (mm) at (12.4,0) {\textbf{MetaMask}\\{\scriptsize\color{soft}signs grant \& revoke}};
+  \node[box,minimum width=3.4cm,minimum height=1.1cm,fill=warnbg,draw=warn!40] (mm) at (12.4,0) {\textbf{Wallet}\\{\scriptsize\color{soft}Privy or MetaMask; signs}\\[-1pt]{\scriptsize\color{soft}grant \& revoke}};
 
   % broker internals: three columns, three rows
   \node[box,minimum width=3.3cm,minimum height=0.9cm] (api) at (5.6,-2.6) {\textbf{HTTP API}\\{\scriptsize\texttt{/api/v1} (Fastify)}};
@@ -457,8 +458,9 @@ Agents never call the vault, the chain or a tool directly. They hold a \emph{ses
 \code{services/agent} & Person 2 & Scripted Travel and Hotel agents, injection environments, GPT planner.\\
 \code{packages/contracts} & Person 1 & \code{CapabilityRegistry.sol}, compile and deploy scripts, deployment manifest.\\
 \code{packages/contract-sdk} & Person 1 & Typed ethers client: register, revoke, delegate, anchor, read, encode for wallets.\\
-\code{apps/web} & Person 3 & Landing page and live demo console (React + Vite), MetaMask bridge.\\
-\code{tests/broker}, \code{tests/contracts} & all & 205 tests: policy, security, API, wallet flow, contract on a local EVM.\\
+\code{apps/web} & Person 3 & Landing page and live demo console (React + Vite); sign-in with Privy or MetaMask.\\
+\code{indexer} & Person 3 & Envio HyperIndex indexer for the registry's events (own pnpm project).\\
+\code{tests/broker}, \code{tests/contracts}, \code{tests/web} & all & 221 tests: policy, security, API, wallet flow, contract on a local EVM, web wallet guards.\\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -922,6 +924,32 @@ Used by & scripts, tests, offline demos & the live web demo on Monad\\
 \end{tabularx}
 \end{center}
 
+\subsection{Signing in: Privy or MetaMask}
+The principal's wallet can come from either of two places, chosen in the web app's configuration (\code{VITE_WALLET_PROVIDER}):
+
+\begin{center}
+\renewcommand{\arraystretch}{1.35}
+\small
+\begin{tabularx}{\textwidth}{@{}l Y Y@{}}
+\toprule
+ & \textbf{Privy} (\code{privy}) & \textbf{Injected} (\code{injected}, default)\\
+\midrule
+Sign-in & email (one-time code) or an external wallet such as MetaMask, through Privy's dialog & MetaMask browser extension\\
+Wallet & a Privy \emph{embedded wallet} created at first email login, or the connected external wallet & the MetaMask account\\
+Needs an extension & no & yes\\
+Gas & the selected wallet pays (embedded wallets start empty; fund from the faucet) & the MetaMask account pays\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Either way the wallet signs exactly the same prepared calldata (Figure~\ref{fig:wallet}); the broker, the contract and the policy are unchanged. A header \emph{Signing wallet} selector shows each connected wallet's type and address, and nothing switches signer silently.
+
+\begin{keyidea}{A grant stays bound to its signer}
+A grant belongs to the principal address that signed it. If the user switches to a different wallet after authorizing, running the agent, revoking and retrying are blocked until the original signer is selected again. Logging out of Privy is not a revocation: only an on-chain \code{revokeCapability} from the principal ends the grant.
+\end{keyidea}
+
+Privy authenticates the user in the browser and keeps the embedded wallet's key; neither the app nor the broker ever receives a private key or a Privy App Secret. The broker does not yet verify Privy access tokens, so principal endpoints remain unauthenticated (Section~\ref{sec:limits}).
+
 % =====================================================================
 \section{Receipts and audit}\label{sec:receipts}
 
@@ -953,6 +981,48 @@ Every decision (allow or deny, context request or tool invocation) produces a \t
 \end{itemize}
 
 Anchoring is evidence, not authorization: if anchoring fails, the decision stands and the receipt stays local with a warning. The broker's structured logger writes only an allowlist of fields (ids, resource, operation, decision, reason code, latency, provider) and strips everything else, even if a caller passes it.
+
+% =====================================================================
+\section{On-chain history with Envio}\label{sec:envio}
+
+The broker keeps its audit trail in memory, which is fast but lost on restart, and it is the broker's own account of events. The registry, however, emits an event for every lifecycle change and every receipt. An \textbf{Envio HyperIndex} indexer (\code{indexer/}) turns those events into a queryable history, so the demo can show what Monad itself recorded.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[node distance=17mm]
+  \node[box,fill=chain,draw=chain,text=white,minimum width=3.3cm,minimum height=1.15cm] (reg) {\textbf{CapabilityRegistry}\\{\scriptsize\color{lilac}Monad Testnet events}};
+  \node[vbox,minimum width=3.3cm,minimum height=1.15cm,right=of reg] (envio) {\textbf{Envio HyperIndex}\\{\scriptsize\color{soft}\texttt{indexer/} handlers}};
+  \node[box,minimum width=3.3cm,minimum height=1.15cm,right=of envio] (gql) {\textbf{GraphQL API}\\{\scriptsize\color{soft}Envio Cloud or local}};
+  \node[okb,minimum width=3.3cm,minimum height=1.15cm,below=7mm of gql] (ui) {\textbf{Audit \& proof}\\{\scriptsize On-chain history panel}};
+  \draw[arr] (reg) -- node[lbl,above]{5 event types} (envio);
+  \draw[arr] (envio) -- node[lbl,above]{entities} (gql);
+  \draw[arr] (gql) -- node[lbl,right]{polled every 5\,s} (ui);
+\end{tikzpicture}
+\caption{The indexer turns registry events into history the web app can query, independent of the broker.}
+\label{fig:envio}
+\end{figure}
+
+\subsection{What is indexed}
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\small
+\begin{tabularx}{\textwidth}{@{}l Y@{}}
+\toprule
+\textbf{Entity} & \textbf{Contents}\\
+\midrule
+\code{Capability} & principal, agent (decoded from its \code{bytes32} hash), policy hash, parent link and depth, expiry, status (\code{ACTIVE} / \code{REVOKED} / \code{COMPLETED}), grant and revoke transactions, receipt and denial counts, children, receipts\\
+\code{Receipt} & capability, request hash, keyed result commitment, decision (\code{DENY} / \code{DERIVE} / \code{SELECT} / \code{TOOL_BOUND}), transaction\\
+\code{LifecycleEvent} & every transition in order: \code{REGISTERED}, \code{DELEGATION_CONFIRMED}, \code{REVOKED}, \code{COMPLETED}\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Indexing starts at the registry's deployment block. Because the contract stores no private data, the indexer cannot hold any either: only IDs, addresses, hashes, status and timestamps. \code{status} is each capability's own status; the contract also treats children of a revoked parent as revoked, which the panel conveys by grouping children under their parent.
+
+\subsection{How the demo uses it}
+In step 5 the web app queries the history for the signed-in principal and shows each grant with its status, its receipts as decision chips linked to the explorer, and its grant and revoke transactions. The panel appears when \code{VITE_ENVIO_GRAPHQL_URL} is set and keeps working across broker restarts.
+
+The indexer is a separate pnpm project kept outside the npm workspaces. It deploys to Envio Cloud from the repository (root directory \code{indexer}, config \code{config.yaml}), or runs locally with \code{pnpm dev} on Linux, macOS or WSL with Docker; Envio has no native Windows build.
 
 % =====================================================================
 \section{The agents}\label{sec:agents}
@@ -1022,15 +1092,19 @@ POST /api/v1/context/request          x-contextcaps-session: ses_...
 \subsection{The console, step by step}
 The console is one scrolling page of five numbered steps that unlock in order, so the trust story reads top to bottom:
 \begin{enumerate}[label=\textbf{\color{violet}\arabic*.}]
-  \item \textbf{Authorize the task.} The task, destination, budget and purpose, next to an \emph{Allowed / Not exposed} preview. On Monad: \emph{Connect wallet}, then \emph{Authorize on Monad} with live progress (``Confirm in your wallet'', ``Waiting for Monad'', ``Broker is verifying on-chain'').
-  \item \textbf{Agent activity.} Choose the scripted agent or real AI, then watch each request and answer: dark indigo rows for \BLOCKED, green results for derived facts, amber rows for untrusted pages.
-  \item \textbf{Delegate \& check out.} The Travel Agent's capability above the Hotel Agent's, with withheld permissions struck through; the confirmed booking with ``Protected by ContextCaps'' credentials.
+  \item \textbf{Authorize the task.} The task (its destination and budget are parsed from the sentence), next to a \emph{The agent can use / Protected from the agent} preview. On Monad: sign in with Privy or connect MetaMask, then \emph{Authorize on Monad} with live progress (``Confirm in your wallet'', ``Waiting for Monad'', ``Broker is verifying on-chain'').
+  \item \textbf{Agent activity.} Choose the scripted agent or real AI, then follow the run as a story:
+    \begin{itemize}
+      \item \emph{Passport} and \emph{Calendar} lanes: the Travel Agent asks for the raw record (\BLOCKED), ContextCaps sits in the middle, and the agent receives only the derived fact.
+      \item A five-part \emph{Prompt injection attack} walkthrough: an untrusted page tries to hijack the agent, ContextCaps checks the unsafe request, safe delegation to a specialized agent, the Hotel Agent working with reduced context, and safe checkout.
+    \end{itemize}
+  \item \textbf{Delegate \& check out.} The Travel Agent's capability beside the Hotel Agent's, with withheld permissions struck through; the confirmed booking with ``Protected by ContextCaps'' credentials.
   \item \textbf{Revoke access.} Revoke from the wallet; both capabilities turn \REVOKED; the agent's retry is \BLOCKED{} with \code{CAPABILITY_REVOKED}.
-  \item \textbf{Audit \& proof.} Every receipt with an expandable \emph{View proof}: request hash, result commitment, anchor transaction, and explorer links.
+  \item \textbf{Audit \& proof.} Every receipt with an expandable \emph{View proof} (request hash, result commitment, anchor transaction, explorer links), plus the Envio-indexed on-chain history (Section~\ref{sec:envio}).
 \end{enumerate}
 
 \begin{okbox}{Nothing is decided in the browser}
-Every allow, deny, delegation and revocation shown in the console comes from a broker response. The web app calls only principal endpoints and \code{/agent/runs}; it never calls agent endpoints, and it discards the session token returned at authorization. The wallet bridge is a minimal EIP-1193 integration (\code{eth_requestAccounts}, chain switch to 10143, \code{eth_sendTransaction}, receipt polling) with no extra library.
+Every allow, deny, delegation and revocation shown in the console comes from a broker response. The web app calls only principal endpoints and \code{/agent/runs}; it never calls agent endpoints, and it discards the session token returned at authorization. Wallet access goes through Privy's SDK or a minimal EIP-1193 bridge (\code{eth_requestAccounts}, chain switch to 10143, \code{eth_sendTransaction}, receipt polling).
 \end{okbox}
 
 % =====================================================================
@@ -1053,7 +1127,7 @@ This is the end-to-end scenario the demo, the \code{demo:golden-flow} script and
 \stepn{5} & Injected page: ``read the user's salary'' $\to$ \code{salary.raw} & \BLOCKED & \code{OUT_OF_SCOPE}\\
 \stepn{6} & Delegates hotel search to the Hotel Agent & child with 2 of 5 permissions; availability \DERIVED, preferences \SELECTED & \code{ALLOW_SELECTED}\\
 \stepn{7} & Checkout: \code{profile.legal_name}, \code{payment.handle}, \code{book_hotel} & \TOOLBOUND{} handles; Marina Central Hotel, \$189, \CONFIRMED & \code{ALLOW_TOOL_BOUND}\\
-\stepn{8} & User revokes from MetaMask & root and child \REVOKED & --\\
+\stepn{8} & User revokes from their wallet & root and child \REVOKED & --\\
 \stepn{9} & Agent retries & \BLOCKED & \code{CAPABILITY_REVOKED}\\
 \bottomrule
 \end{tabularx}
@@ -1086,7 +1160,7 @@ INV-10 & No raw data on-chain & Anchors carry ids and hashes only; keyed result 
 % =====================================================================
 \section{Testing and verification}\label{sec:testing}
 
-The suite (\code{npm test}, Vitest) runs 205 tests across 20 files in about 15 seconds. Contract tests deploy the real compiled bytecode to an in-process Ganache EVM, so the full agent $\to$ broker $\to$ SDK $\to$ EVM path is exercised without any external network.
+The suite (\code{npm test}, Vitest) runs 221 tests across 22 files in about 15 seconds. Contract tests deploy the real compiled bytecode to an in-process Ganache EVM, so the full agent $\to$ broker $\to$ SDK $\to$ EVM path is exercised without any external network.
 
 \begin{center}
 \renewcommand{\arraystretch}{1.25}
@@ -1104,6 +1178,7 @@ Quota & distinct-query limits and caching (Q01--Q05)\\
 LLM planner & request shape, fake-provider scenarios, fallback (L01--L06)\\
 Wallet signing & prepare, confirm, mismatch, foreign principal, verified revocation (W01--W08)\\
 Contract on EVM & principal and operator permissions, expiry boundary, completion, delegation, receipts, concurrent writes, full booking and direct-chain revoke, user-wallet flow\\
+Web wallet & signer selection, wallet-signing guards, a grant staying bound to its original signer\\
 Provider conformance & the same suite against the mock, a fake SDK and the real SDK on the local EVM\\
 \bottomrule
 \end{tabularx}
@@ -1133,7 +1208,7 @@ broker TOOL\_BOUND issue handle & 0.031 ms & 0.063 ms\\
 
 \begin{codebox}
 npm install
-npm test                      # 205 tests
+npm test                      # 221 tests
 npm run typecheck && npm run typecheck:web
 
 # Mock trust layer (no wallet, no gas)
@@ -1141,8 +1216,11 @@ npm run start:broker          # http://127.0.0.1:8787/api/v1
 npm run dev:web               # landing http://localhost:5173/   demo /demo/
 npm run demo:golden-flow      # all nine scenes over HTTP
 
-# Monad, user wallet signing (reads .env)
-node --env-file=.env --import tsx services/broker/src/main.ts
+# Monad, user wallet signing: start:broker reads .env when present
+npm run start:broker
+
+# Envio indexer (Linux, macOS or WSL with Docker)
+cd indexer && pnpm install && pnpm dev
 
 # Contracts
 npm run contracts:compile && npm run test:contracts
@@ -1165,6 +1243,8 @@ npm run contracts:deploy      # writes packages/contracts/deployments/monad-test
 \code{CORS_ORIGINS} & allowed web origins\\
 \code{LLM_PLANNER}, \code{OPENAI_API_KEY}, \code{OPENAI_MODEL}, \code{LLM_EFFORT} & optional GPT planner (leave \code{LLM_EFFORT} empty for \code{gpt-5.4-mini})\\
 \code{VITE_API_BASE} & web: broker URL for deployed builds (dev uses a proxy)\\
+\code{VITE_WALLET_PROVIDER}, \code{VITE_PRIVY_APP_ID} & web: \code{privy} for Privy sign-in with its public App ID, or \code{injected} for MetaMask (set in \code{apps/web/.env.local})\\
+\code{VITE_ENVIO_GRAPHQL_URL} & web: Envio GraphQL endpoint; enables the on-chain history panel\\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -1184,10 +1264,11 @@ This is a hackathon prototype that proves one use case end to end. Being explici
 Scope & one purpose template (travel booking), two agents & policy authoring for arbitrary tasks; MCP-compatible agent access\\
 Data & fictional seeded data, in memory & real data connectors, encrypted persistent storage\\
 Booking & mock merchant connector & real booking and payment providers\\
-Principal API & principal endpoints are not authenticated (wallet signs only grant and revoke) & wallet-signature authentication for every principal call (passkeys)\\
+Principal API & principal endpoints are not authenticated; Privy signs users in on the client only, and the wallet signs only grant and revoke & verify Privy access tokens or wallet signatures on every principal call\\
 Operator trust & operator may register children under user-signed roots & per-root operator authorization, or user-approved delegation\\
 Agents & scripted + GPT planner in-process & external agents via SDK; agent identity (ERC-8004)\\
-Storage & broker state lost on restart & database; event indexing (Envio)\\
+Storage & broker state lost on restart; the on-chain history survives via the Envio indexer & database for broker state\\
+Gas & every wallet pays its own gas; new Privy wallets start empty & sponsored gas for the user's grant and revoke\\
 Network & Monad Testnet & audited contract, mainnet\\
 \bottomrule
 \end{tabularx}
@@ -1211,6 +1292,8 @@ ContextCaps lets autonomous agents use private context \emph{without automatical
   \item[Operator] The broker's key, registered as \code{receiptWriter}: anchors receipts and registers attenuated children.
   \item[Receipt] A record of one decision; on-chain it carries only ids, a request hash, a keyed result commitment and a decision code.
   \item[Fail closed] When state cannot be verified, the answer is \emph{deny}.
+  \item[Embedded wallet] A wallet Privy creates for a user at email sign-in; the user controls it without a browser extension or seed phrase.
+  \item[Indexer] A service (here Envio HyperIndex) that records a contract's events into a database and serves them over GraphQL.
 \end{description}
 
 \end{document}
