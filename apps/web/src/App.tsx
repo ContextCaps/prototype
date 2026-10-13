@@ -12,7 +12,7 @@ import { useDemo } from "./lib/useDemo";
 const PLANNER_LABELS = { scripted: "Scripted agent", llm: "Real AI (GPT)", "scripted-fallback": "Scripted fallback" } as const;
 
 export function App() {
-  const { state, walletMode, connect, authorize, runAgent, revoke, retryAfterRevoke, reset, checkHealth } = useDemo();
+  const { state, wallet, walletMode, connect, disconnect, createEmbedded, authorize, runAgent, revoke, retryAfterRevoke, reset, checkHealth } = useDemo();
   const { health, auth, run, root, child, audit, busy, error } = state;
   const provider = health?.provider;
   const llmAvailable = health?.llmPlanner === "available";
@@ -20,7 +20,7 @@ export function App() {
 
   return (
     <>
-      <Header health={health} healthError={state.healthError} resetting={busy === "reset"} onReset={reset} onRecheck={checkHealth} />
+      <Header health={health} healthError={state.healthError} resetting={busy === "reset"} onReset={reset} onRecheck={checkHealth} wallet={wallet} walletBusy={!!busy} onConnect={connect} onDisconnect={disconnect} onCreateEmbedded={createEmbedded} />
 
       <main className="container console">
         <div className="intro">
@@ -34,6 +34,11 @@ export function App() {
           <p className="callout callout-deny" role="alert">
             <i className="ph ph-warning-circle" aria-hidden="true" /> {error}
           </p>
+        )}
+
+        {wallet.error && <p className="callout callout-warn" role="alert">{wallet.error}</p>}
+        {walletMode && auth && state.account?.toLowerCase() !== auth.mandate.principal.toLowerCase() && (
+          <p className="callout callout-warn">Reconnect the wallet that authorized this task to continue. Logging out does not revoke its on-chain permissions.</p>
         )}
 
         <Step

@@ -8,7 +8,8 @@ import type {
   CreateMandateResponse,
   HealthResponse,
 } from "../api/types";
-import { connectWallet, sendAndConfirm, watchAccount, type TxStage } from "./wallet";
+import { sendAndConfirm, type TxStage } from "./wallet";
+import { useWalletSession } from "./WalletContext";
 
 /** The authorized mandate as the UI keeps it. The root agent's session token is dropped on purpose. */
 export type Authorization = Omit<CreateMandateResponse, "session">;
@@ -60,6 +61,7 @@ const STAGE_TEXT: Record<TxStage, string> = {
  * revocation itself; the broker only acts once it sees them on-chain.
  */
 export function useDemo() {
+  const wallet = useWalletSession();
   const [state, setState] = useState<DemoState>({ ...EMPTY, health: null, healthError: null, account: null });
   const patch = useCallback((p: Partial<DemoState>) => setState((s) => ({ ...s, ...p })), []);
   const walletMode = state.health?.principalSigning === "wallet";
@@ -75,8 +77,6 @@ export function useDemo() {
   useEffect(() => {
     void checkHealth();
   }, [checkHealth]);
-
-  useEffect(() => watchAccount((account) => patch({ account: account ?? null })), [patch]);
 
   /** Runs one action with a busy flag and error capture. */
   const act = useCallback(
@@ -103,15 +103,26 @@ export function useDemo() {
     return { root, child, audit };
   }, []);
 
-  const connect = () => act("connect", async () => ({ account: await connectWallet() }));
+  const connect = () => act("connect", async () => { await wallet.connect(); return {}; });
+  const disconnect = () => act("connect", async () => { await wallet.disconnect?.(); return {}; });
+  const createEmbedded = () => act("connect", async () => { await wallet.createEmbedded?.(); return {}; });
+
+  const requirePrincipal = (principal: string) => {
+    if (!wallet.ready || !wallet.account) throw new Error("Connect your wallet first.");
+    if (wallet.account.toLowerCase() !== principal.toLowerCase()) {
+      throw new Error("Reconnect the wallet that authorized this task before continuing.");
+    }
+  };
 
   const authorize = (req: CreateMandateRequest) =>
     act("authorize", async () => {
+      if (wallet.kind === "privy" && !walletMode) throw new Error("This broker must enable user-wallet signing to authorize with Privy.");
+      if (walletMode) requirePrincipal(req.principal);
       const response = await broker.createMandate(req);
       let created: CreateMandateResponse;
       if ("status" in response && response.status === "AWAITING_SIGNATURE") {
-        if (!state.account) throw new Error("Connect your wallet first.");
-        const txHash = await sendAndConfirm(state.account, response.signRequest, onStage);
+        requirePrincipal(req.principal);
+        const txHash = await sendAndConfirm(req.principal, response.signRequest, onStage, await wallet.getProvider());
         patch({ progress: "Broker is verifying on-chain…" });
         created = await broker.confirmMandate(response.mandate.mandateId, txHash);
       } else {
@@ -125,6 +136,7 @@ export function useDemo() {
   const runAgent = (planner: "scripted" | "llm" = "scripted") =>
     act("run", async () => {
       if (!state.auth) throw new Error("Authorize the task first.");
+      if (walletMode) requirePrincipal(state.auth.mandate.principal);
       const run = await broker.runAgent({ mandateId: state.auth.mandate.mandateId, planner });
       return { run, retry: null, ...(await snapshot(state.auth, run.childCapabilityId)) };
     });
@@ -134,9 +146,9 @@ export function useDemo() {
       if (!state.auth) throw new Error("Nothing to revoke.");
       const capabilityId = state.auth.capability.capabilityId;
       if (walletMode) {
-        if (!state.account) throw new Error("Connect your wallet first.");
+        requirePrincipal(state.auth.mandate.principal);
         const { signRequest } = await broker.prepareRevocation(capabilityId);
-        const txHash = await sendAndConfirm(state.account, signRequest, onStage);
+        const txHash = await sendAndConfirm(state.auth.mandate.principal, signRequest, onStage, await wallet.getProvider());
         patch({ progress: "Broker is verifying on-chain…" });
         await broker.revokeCapability(capabilityId, txHash);
       } else {
@@ -148,6 +160,7 @@ export function useDemo() {
   const retryAfterRevoke = () =>
     act("retry", async () => {
       if (!state.auth) throw new Error("Authorize the task first.");
+      if (walletMode) requirePrincipal(state.auth.mandate.principal);
       const retry = await broker.runAgent({ mandateId: state.auth.mandate.mandateId, scenario: "retry" });
       return { retry, ...(await snapshot(state.auth, state.run?.childCapabilityId)) };
     });
@@ -164,5 +177,5 @@ export function useDemo() {
       return { ...EMPTY };
     });
 
-  return { state, walletMode, connect, authorize, runAgent, revoke, retryAfterRevoke, reset, checkHealth };
+  return { state: { ...state, account: wallet.account }, wallet, walletMode, connect, disconnect, createEmbedded, authorize, runAgent, revoke, retryAfterRevoke, reset, checkHealth };
 }

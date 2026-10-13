@@ -1274,6 +1274,10 @@ label.fact-label { cursor: pointer; width: fit-content; }
 
 /* ------------------------------------------------------------- responsive */
 
+.wallet-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wallet-nav select { max-width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 8px; font: inherit; }
+.nav-actions { flex-wrap: wrap; }
+
 @media (max-width: 900px) {
   .grid-2,
   .authorize { grid-template-columns: minmax(0, 1fr); }
