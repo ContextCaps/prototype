@@ -8,8 +8,8 @@
     "services/*"
   ],
   "scripts": {
-    "start:broker": "tsx services/broker/src/main.ts",
-    "dev:broker": "tsx watch services/broker/src/main.ts",
+    "start:broker": "node --env-file-if-exists=.env --import tsx services/broker/src/main.ts",
+    "dev:broker": "node --env-file-if-exists=.env --import tsx --watch services/broker/src/main.ts",
     "dev:web": "npm run dev -w @contextcaps/web",
     "build:web": "npm run build -w @contextcaps/web",
     "typecheck:web": "npm run typecheck -w @contextcaps/web",
