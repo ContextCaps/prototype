@@ -197,6 +197,38 @@ This is a hackathon prototype that proves one use case end to end:
 
 See *Limitations and roadmap* in the [technical documentation](docs/techdoc/contextcaps-techdoc.pdf) for what comes next.
 
+## Next phase: ContextCaps for any app and any agent
+
+ContextCaps sits between three parties, and each would integrate it differently:
+
+| Who | How they use ContextCaps |
+|---|---|
+| **The user**, through an app or website | Signs a grant for one task with their own wallet, revokes it at any time, and reviews the on-chain audit trail |
+| **The AI agent's developer** | Instead of giving the agent raw access to data, the agent *asks* ContextCaps and receives only the minimum answer |
+| **Tools and merchants** (e.g. a booking site) | Receive the real secret, such as a payment token, directly from ContextCaps at checkout; the agent never sees it |
+
+**Today**, an agent integrates through the broker's HTTP API with the session token ContextCaps issued for its task:
+
+```http
+POST /api/v1/context/request          x-contextcaps-session: ses_...
+{ "resource": "passport.validity", "operation": "valid_for_trip",
+  "parameters": { "destination": "Singapore", "departureDate": "2026-10-17", "returnDate": "2026-10-18" } }
+
+→ { "decision": "DERIVE", "result": { "valid": true } }
+```
+
+Agents only ever need three endpoints: ask for context, delegate to a sub-agent, and use an approved tool. A user-facing app uses the others to create a task, revoke it and read the audit trail, and anyone can verify grants directly on Monad or through the Envio index.
+
+**Next**, to make ContextCaps something any team can adopt:
+
+1. **SDK.** A TypeScript package for agent developers, replacing hand-written HTTP calls with typed `requestContext`, `delegate` and `useTool` helpers.
+2. **MCP server.** Expose ContextCaps through the Model Context Protocol, the standard way AI assistants connect to tools, so any MCP-compatible agent can use it as its private-context tool with no custom code.
+3. **Real data sources.** Connectors for real calendars, identity documents and payment providers in place of the fictional demo vault.
+4. **More task types.** Policy templates beyond travel booking (for example job applications or expense filing), and a way for apps to define their own.
+5. **Multi-user hosting.** Wallet- or Privy-authenticated user endpoints, persistent storage instead of in-memory state, and one deployment serving many users and apps.
+
+> Today ContextCaps runs as a hosted broker with an HTTP API. Next, we package it as an SDK and an MCP server, so any AI agent can request minimum facts instead of raw data, with every grant and revocation verifiable on Monad.
+
 ## Built with
 
 ContextCaps builds on these open-source projects and services. Each is used under its own license; thank you to their authors.
