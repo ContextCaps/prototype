@@ -1,4 +1,6 @@
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
+import { resolve } from "node:path";
 import { runAgentScenario, type AgentRunResult, type RunScenarioInput } from "@contextcaps/agent";
 import type {
   CreateMandateRequest,
@@ -32,6 +34,8 @@ export interface ServerOptions {
   onReset?: () => void;
   corsOrigins?: string[] | true;
   llmRunner?: LlmRunner;
+  /** Serve this built web app (apps/web/dist) at / and /demo/ next to /api/v1. */
+  staticDir?: string;
 }
 
 export const SESSION_HEADER = "x-contextcaps-session";
@@ -175,6 +179,13 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
       options.onReset?.();
       return { ok: true };
     });
+  }
+
+  // One-service deployments: the landing page at / and the console at /demo/
+  // come from the same origin as the API, so no proxy or CORS setup is needed.
+  // API routes are registered above and always take precedence.
+  if (options.staticDir) {
+    await app.register(fastifyStatic, { root: resolve(options.staticDir), prefix: "/", redirect: true });
   }
 
   return app;

@@ -34,7 +34,7 @@ export interface BrokerApp {
 /** Composition root: wires vault, trust-layer provider, tools, broker and HTTP API. */
 export async function createBrokerApp(
   config: Pick<BrokerConfig, "receiptKey" | "demoMode" | "corsOrigins" | "chainProvider"> &
-    Partial<Pick<BrokerConfig, "llmPlanner" | "llmModel" | "llmEffort" | "principalSigning">>,
+    Partial<Pick<BrokerConfig, "llmPlanner" | "llmModel" | "llmEffort" | "principalSigning" | "staticDir">>,
   overrides: AppOverrides = {},
 ): Promise<BrokerApp> {
   const clock = overrides.clock ?? systemClock;
@@ -74,6 +74,7 @@ export async function createBrokerApp(
     llmRunner: llmProvider ? (input) => runLlmScenario(broker, input, llmProvider) : undefined,
     demoMode: config.demoMode,
     corsOrigins: config.corsOrigins,
+    staticDir: config.staticDir,
     onReset: () => {
       vault.reset();
       booking.reset();
