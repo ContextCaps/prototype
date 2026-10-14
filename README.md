@@ -56,6 +56,18 @@ flowchart LR
 
 ---
 
+## Why Monad
+
+ContextCaps puts the **authorization state** of AI agents on-chain, and it is designed around checking that state constantly:
+
+- **Every agent request is checked against the chain.** Before answering, the broker re-reads the capability and every ancestor from the `CapabilityRegistry` (status, expiry, policy hash). Revocation is therefore enforced on the very next request, even when it is sent directly on-chain without going through the broker. That loop only feels instant on a chain with fast blocks and fast, cheap reads.
+- **Every decision is anchored.** Each disclosure decision (blocked, derived, selected or tool-bound) becomes a receipt transaction, so a single agent run writes many small transactions. Monad's low fees and high throughput make per-decision receipts practical instead of batching them away.
+- **The user is the root of authority.** Grants and revocations are ordinary transactions signed by the user's own wallet (Privy or MetaMask). Monad's EVM compatibility means standard Solidity, ethers and wallets work unchanged.
+
+What lives on Monad: capability grants, parent/child delegation links, expiry, revocation, and receipt commitments (request hash, keyed result commitment, decision code). What never does: any private data. The broker enforces scope and purpose off-chain and commits to its policy through a hash stored on-chain.
+
+---
+
 ## Quick start
 
 Requires **Node.js 22+**.
@@ -106,6 +118,20 @@ OPENAI_API_KEY=sk-...
 The demo then offers a **Scripted agent / Real AI (GPT)** toggle. The scripted agent deliberately over-asks so every protection is visible; GPT plans on its own through the same broker tools. If the model fails, the run falls back to the script and the UI says so.
 
 ---
+
+## Technology stack
+
+| Layer | Technology |
+|---|---|
+| Blockchain | Monad Testnet (chain 10143); Solidity 0.8.28 `CapabilityRegistry`; ethers v6 contract SDK |
+| Broker (backend) | Node.js 22+, TypeScript, Fastify, Zod; deterministic policy engine in plain TypeScript |
+| Agents | Scripted Travel and Hotel agents; optional GPT planner via the OpenAI API |
+| Web app | React 19, Vite, TypeScript; static landing page (HTML, CSS, JavaScript) |
+| Wallets | Privy (email login with embedded wallets, or external wallets) and MetaMask (EIP-1193) |
+| Indexing | Envio HyperIndex over the registry's events, served as GraphQL |
+| Testing | Vitest; Ganache local EVM for contract tests |
+| Hosting | Render (one service: broker + web app); Envio Cloud for the indexer |
+| Docs | LaTeX (Tectonic) with TikZ diagrams |
 
 ## Repository layout
 
@@ -169,4 +195,38 @@ This is a hackathon prototype that proves one use case end to end:
 - The broker operator may register delegated children under a root you signed (never a root, never longer-lived, always revocable by you).
 - Testnet only; the contract is unaudited.
 
-See section 20 of the [technical documentation](docs/techdoc/contextcaps-techdoc.pdf) for the roadmap.
+See *Limitations and roadmap* in the [technical documentation](docs/techdoc/contextcaps-techdoc.pdf) for what comes next.
+
+## Built with
+
+ContextCaps builds on these open-source projects and services. Each is used under its own license; thank you to their authors.
+
+| Project | Used for | License |
+|---|---|---|
+| [Fastify](https://fastify.dev) (`fastify`, `@fastify/cors`, `@fastify/static`) | Broker HTTP API and static hosting | MIT |
+| [Zod](https://zod.dev) | Request validation | MIT |
+| [ethers](https://ethers.org) | Contract SDK, Monad RPC, transaction signing | MIT |
+| [@noble/hashes](https://github.com/paulmillr/noble-hashes) | Hashing in the broker | MIT |
+| [solc-js](https://github.com/ethereum/solc-js) | Compiling the Solidity contract | MIT |
+| [React](https://react.dev) | Demo console UI | MIT |
+| [Vite](https://vite.dev) | Web build and dev server | MIT |
+| [Privy](https://privy.io) (`@privy-io/react-auth`) | Email login, embedded and external wallets | Apache-2.0 |
+| [Envio HyperIndex](https://envio.dev) (`envio`) | Indexing registry events | Envio license (source-available) |
+| [Phosphor Icons](https://phosphoricons.com) | Icons in the web app | MIT |
+| [Inter](https://rsms.me/inter/), [JetBrains Mono](https://www.jetbrains.com/lp/mono/), Gochi Hand, Source Sans / Source Code Pro (Google Fonts, Adobe) | Typography in the web app and docs | SIL OFL 1.1 |
+| [TypeScript](https://www.typescriptlang.org), [tsx](https://tsx.is) | Language and runtime for the TypeScript services | Apache-2.0, MIT |
+| [Vitest](https://vitest.dev), [Ganache](https://github.com/trufflesuite/ganache) | Test runner and local EVM for contract tests | MIT |
+| [OpenAI API](https://platform.openai.com) | Optional GPT planner for the agent (runtime service) | API terms |
+| [Monad](https://monad.xyz), [Render](https://render.com), [Envio Cloud](https://envio.dev) | Testnet, app hosting, indexer hosting | services |
+
+All code in this repository was written for ContextCaps; no third-party source code is vendored into it. The only adapted file is the indexer's `tsconfig.json`, taken from Envio's project template.
+
+## AI disclosure
+
+AI tools were used in building this project, including AI coding assistants for writing, reviewing and testing code and documentation, and AI image generation for some illustrations. All AI-assisted work was directed, reviewed, tested and integrated by the team.
+
+Separately, the product itself can use an AI model at runtime: the optional GPT planner drives the demo's Travel Agent. That is a feature of ContextCaps, and its requests always go through the same deterministic policy checks as the scripted agent.
+
+## License
+
+[MIT](LICENSE) © 2026 ContextCaps contributors.
